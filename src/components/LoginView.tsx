@@ -9,17 +9,39 @@ interface LoginProps {
 export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) {
+      alert('Please enter both email and password.');
+      return;
+    }
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      onLogin(email || 'alex.vance@lumon.corp', name || 'Alex');
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        if (data.token) {
+          localStorage.setItem('aria_token', data.token);
+        }
+        onLogin(data.user.email, data.user.name);
+      } else {
+        alert(data.message || 'Invalid email or password');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the backend server. Please make sure it is running.');
+    } finally {
       setIsSubmitting(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -44,26 +66,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
         {/* Login Form Layout Card */}
         <div className="glass-card rounded-2xl p-8 shadow-2xl space-y-6 relative overflow-hidden">
           <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Optional Nickname for personalization */}
-            <div className="space-y-1.5">
-              <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase" htmlFor="name">
-                Your Nickname
-              </label>
-              <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant opacity-70">
-                  @
-                </span>
-                <input 
-                  className="w-full h-12 bg-transparent text-on-surface pl-10 pr-4 rounded-xl focus:ring-0 focus:outline-none" 
-                  id="name" 
-                  type="text" 
-                  placeholder="Alex (Optional)" 
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-            </div>
+
 
             {/* Email Field */}
             <div className="space-y-1.5">
@@ -123,30 +126,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
             </button>
           </form>
 
-          {/* Divider tag */}
-          <div className="flex items-center my-6">
-            <div className="flex-grow border-t border-outline-variant opacity-30" />
-            <span className="px-4 font-bold text-[10px] text-on-surface-variant uppercase tracking-widest whitespace-nowrap">
-              OR CONTINUE WITH
-            </span>
-            <div className="flex-grow border-t border-outline-variant opacity-30" />
-          </div>
 
-          {/* Social Logins */}
-          <div className="grid grid-cols-2 gap-3">
-            <button 
-              onClick={() => onLogin('apple.user@apple.com', 'Apple User')}
-              className="h-12 glass-card rounded-xl flex items-center justify-center gap-2 hover:bg-white/5 active:scale-95 transition-all text-on-surface text-label-md font-bold cursor-pointer"
-            >
-              <span className="font-semibold text-lg"></span> Apple
-            </button>
-            <button 
-              onClick={() => onLogin('google.user@google.com', 'Google User')}
-              className="h-12 glass-card rounded-xl flex items-center justify-center gap-2 hover:bg-white/5 active:scale-95 transition-all text-on-surface text-label-md font-bold cursor-pointer"
-            >
-              <span className="text-secondary font-black">G</span> Google
-            </button>
-          </div>
 
           {/* Sign Up footer link */}
           <div className="text-center pt-4">

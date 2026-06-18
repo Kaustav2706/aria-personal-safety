@@ -1,14 +1,26 @@
 import admin from 'firebase-admin';
 import fs from 'fs';
 
-const serviceAccount = JSON.parse(
-    fs.readFileSync('./firebase-service-account.json', 'utf8')
-);
+let serviceAccount = null;
+const serviceAccountPath = './firebase-service-account.json';
 
-if (!admin.getApps().length) {
-    admin.initializeApp({
-        credential: admin.cert(serviceAccount)
-    });
+try {
+  if (fs.existsSync(serviceAccountPath)) {
+    serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+  }
+} catch (error) {
+  console.error('🔴 [FIREBASE] Error reading firebase-service-account.json:', error);
 }
 
-export default admin;
+if (serviceAccount) {
+  if (!admin.getApps().length) {
+    admin.initializeApp({
+      credential: admin.cert(serviceAccount)
+    });
+    console.log('💚 [FIREBASE] Firebase Admin SDK initialized successfully.');
+  }
+} else {
+  console.warn('⚠️ [FIREBASE] Firebase Admin SDK not initialized (missing firebase-service-account.json). Messaging will fail.');
+}
+
+export default admin;

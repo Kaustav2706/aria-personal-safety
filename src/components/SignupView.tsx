@@ -8,28 +8,58 @@ interface SignupProps {
 
 export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupProps) {
   const [fullName, setFullName] = useState('');
-  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !emergencyPhone) {
+    if (!fullName || !email || !phone) {
       alert('Please fill out all mandatory fields.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      alert('Passwords do not match.');
       return;
     }
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setRegisterSuccess(true);
-      setTimeout(() => {
-        onRegisterComplete(email, fullName, emergencyPhone);
-        setIsSubmitting(false);
-      }, 1000);
-    }, 1500);
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: fullName,
+          email,
+          phone,
+          password,
+          emergencyContacts: []
+        }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setRegisterSuccess(true);
+        if (data.token) {
+          localStorage.setItem('aria_token', data.token);
+        }
+        setTimeout(() => {
+          onRegisterComplete(data.user.email, data.user.name, '');
+          setIsSubmitting(false);
+        }, 1000);
+      } else {
+        alert(data.message || 'Registration failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the backend server. Please make sure it is running.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -72,23 +102,24 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
               </div>
             </div>
 
-            {/* Emergency Contact Phone */}
+            {/* Your Phone Number */}
             <div className="space-y-1">
               <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                Emergency Contact Phone
+                Your Phone Number
               </label>
               <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
                 <input 
                   className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg"
                   type="tel" 
-                  placeholder="+1 (555) 000-0000" 
+                  placeholder="+1 (555) 123-4567" 
                   required
-                  value={emergencyPhone}
-                  onChange={(e) => setEmergencyPhone(e.target.value)}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                 />
               </div>
             </div>
+
 
             {/* Email Address */}
             <div className="space-y-1">
