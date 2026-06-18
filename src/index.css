@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  
+  --color-background: #1e0f0e;
+  --color-on-background: #fadcd8;
+  
+  --color-primary: #ffb4ac;
+  --color-on-primary: #690006;
+  --color-primary-container: #ff544c;
+  --color-on-primary-container: #5c0005;
+  --color-inverse-primary: #bb171c;
+  
+  --color-secondary: #a2c9ff;
+  --color-on-secondary: #00315b;
+  --color-secondary-container: #3394f1;
+  --color-on-secondary-container: #002b50;
+  
+  --color-tertiary: #72d4ef;
+  --color-on-tertiary: #003641;
+  --color-tertiary-container: #319db6;
+  --color-on-tertiary-container: #002e39;
+  
+  --color-surface: #1e0f0e;
+  --color-on-surface: #fadcd8;
+  --color-on-surface-variant: #e4beb9;
+  
+  --color-surface-dim: #1e0f0e;
+  --color-surface-bright: #483432;
+  
+  --color-surface-container-lowest: #180a09;
+  --color-surface-container-low: #271716;
+  --color-surface-container: #2c1b1a;
+  --color-surface-container-high: #372624;
+  --color-surface-container-highest: #43302e;
+  
+  --color-outline: #ab8985;
+  --color-outline-variant: #5b403d;
+  
+  --color-error: #ffb4ac;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+}
+
+@layer utilities {
+  .glass-card {
+    background: rgba(44, 27, 26, 0.4);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .sos-glow {
+    box-shadow: 0 0 40px rgba(255, 84, 76, 0.45);
+  }
+  
+  .safe-glow {
+    box-shadow: 0 0 30px rgba(51, 148, 241, 0.2);
+  }
+
+  .priority-glow {
+    animation: pulse-red-glow 2s infinite;
+  }
+}
+
+@keyframes pulse-red-glow {
+  0% { box-shadow: 0 0 0 0 rgba(255, 180, 172, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 180, 172, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 180, 172, 0); }
+}
+
+/* Base resets & animations */
+body {
+  background-color: #1e0f0e;
+  color: #fadcd8;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* Hide scrollbar on certain containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

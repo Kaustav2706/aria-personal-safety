@@ -1,0 +1,10 @@
+{
+  "name": "ARIA Personal Safety",
+  "description": "An AI-powered personal safety companion with real-time monitoring and custom emergency response protocols.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
