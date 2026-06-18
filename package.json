@@ -1,0 +1,24 @@
+{
+  "name": "aria-monorepo",
+  "version": "1.0.0",
+  "description": "ARIA (AI Real-time Incident Assistant) Safety Platform Monorepo",
+  "private": true,
+  "scripts": {
+    "install:all": "npm run install:backend && npm run install:dashboard && npm run install:mobile",
+    "install:backend": "cd backend && npm install",
+    "install:dashboard": "cd police-dashboard && npm install",
+    "install:mobile": "cd mobile && npm install",
+    "start:backend": "cd backend && npm start",
+    "start:dashboard": "cd police-dashboard && npm run dev",
+    "start:mobile": "cd mobile && npm run start"
+  },
+  "keywords": [
+    "monorepo",
+    "safety",
+    "express",
+    "react",
+    "expo",
+    "fastapi"
+  ],
+  "author": "ARIA Safety Team"
+}

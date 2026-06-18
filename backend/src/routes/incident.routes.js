@@ -1,0 +1,24 @@
+import { Router } from 'express';
+import multer from 'multer';
+import { createIncident, getIncidents, getIncidentById, resolveIncident, generateReport } from '../controllers/incident.controller.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
+
+const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+// POST /api/incidents/create - Optional audio multipart upload mapping
+router.post('/create', authenticateToken, upload.single('file'), createIncident);
+
+// GET /api/incidents
+router.get('/', getIncidents);
+
+// GET /api/incidents/:id
+router.get('/:id', getIncidentById);
+
+// PUT /api/incidents/:id/resolve
+router.put('/:id/resolve', resolveIncident);
+
+// POST /api/report/generate
+router.post('/report/generate', generateReport);
+
+export default router;

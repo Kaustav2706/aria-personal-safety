@@ -1,0 +1,104 @@
+# ==========================================
+# Node.js
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+coverage/
+dist/
+build/
+.next/
+.out/
+
+# ==========================================
+# Python
+# ==========================================
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ==========================================
+# React Native
+# ==========================================
+.expo/
+.expo-shared/
+android/
+ios/
+*.apk
+*.aab
+
+# ==========================================
+# Firebase
+# ==========================================
+firebase-service-account.json
+serviceAccountKey.json
+# Allow example files
+!firebase-service-account.example.json
+.firebase/
+firebase-debug.log
+
+# ==========================================
+# Twilio
+# ==========================================
+twilio.json
+.twilio/
+twilio-credentials*
+
+# ==========================================
+# PostgreSQL
+# ==========================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# Environment & Secrets
+# ==========================================
+.env
+.env.*
+# Allow environment example files
+!.env.example
+*.pem
+*.key
+*.crt
+
+# ==========================================
+# Uploads & Generated Artifacts
+# ==========================================
+backend/uploads/reports/*
+backend/uploads/audio/*
+*.pdf
+*.wav
+*.mp3
+*.m4a
+!backend/uploads/reports/.gitkeep
+!backend/uploads/audio/.gitkeep
+
+# ==========================================
+# IDE
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# OS
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
