@@ -112,6 +112,12 @@ export const incidentService = {
 
   /** GET /api/incidents/:id */
   getById: (id: string) => api.get(`/api/incidents/${id}`),
+
+  /** DELETE /api/incidents/:id */
+  delete: (id: string) => api.delete(`/api/incidents/${id}`),
+
+  /** PUT /api/incidents/:id/resolve */
+  resolve: (id: string) => api.put(`/api/incidents/${id}/resolve`),
 };
 
 // ═════════════════════════════════════════════════════════════════════════════

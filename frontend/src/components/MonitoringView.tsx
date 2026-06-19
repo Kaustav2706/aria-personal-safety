@@ -7,9 +7,15 @@ interface MonitoringViewProps {
   onMonitoringChange: (active: boolean) => void;
   onRiskScoreChange: (score: number) => void;
   onIncidentCreated: (incident: BackendIncident) => void;
+  onTriggerSOS: () => void;
 }
 
-export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, onIncidentCreated }: MonitoringViewProps) {
+export default function MonitoringView({ 
+  onMonitoringChange, 
+  onRiskScoreChange, 
+  onIncidentCreated,
+  onTriggerSOS
+}: MonitoringViewProps) {
   // Session state
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(false);
@@ -34,6 +40,12 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
   const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // Web Audio API refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastBackendConfidenceRef = useRef<number>(15);
 
   // GPS state
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
@@ -64,6 +76,52 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
       // 2. Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+
+      // Web Audio API setup for live voice level tracking
+      try {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        const updateVolume = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteTimeDomainData(dataArray);
+          
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            const val = (dataArray[i] - 128) / 128;
+            sum += val * val;
+          }
+          const rms = Math.sqrt(sum / bufferLength);
+          
+          // Boost and map volume level (up to 85%)
+          const liveVoiceLevel = Math.min(Math.round(rms * 400), 85);
+          
+          // Display live level relative to last backend response with peak-hold/slow-decay smoothing
+          setConfidence((prev) => {
+            const target = Math.min(lastBackendConfidenceRef.current + liveVoiceLevel, 100);
+            if (target > prev) {
+              return Math.round(prev * 0.5 + target * 0.5); // Rise relatively quickly
+            } else {
+              return Math.round(prev * 0.95 + target * 0.05); // Decay slowly to prevent flickering
+            }
+          });
+          
+          animationFrameRef.current = requestAnimationFrame(updateVolume);
+        };
+        
+        animationFrameRef.current = requestAnimationFrame(updateVolume);
+      } catch (audioErr) {
+        console.warn('[MONITORING] Web Audio API setup failed:', audioErr);
+      }
 
       // 3. Start recording
       const mediaRecorder = new MediaRecorder(stream, {
@@ -149,6 +207,7 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
       const data = res.data as ChunkAnalysis;
 
       if (data.success) {
+        lastBackendConfidenceRef.current = data.confidence;
         setConfidence(data.confidence);
         setRiskScore(data.riskScore);
         setTranscript(data.transcript || 'No speech detected.');
@@ -181,6 +240,23 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
   // ── Stop Monitoring ───────────────────────────────────────────────────────
   const handleStop = async () => {
     setIsStopping(true);
+
+    // Stop volume tracking
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (err) {
+        console.warn('[MONITORING] Failed to close audio context:', err);
+      }
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    lastBackendConfidenceRef.current = 15;
+    setConfidence(0);
 
     // Clear intervals
     if (chunkIntervalRef.current) clearInterval(chunkIntervalRef.current);
@@ -219,6 +295,12 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
       if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {}
+      }
     };
   }, []);
 
@@ -314,9 +396,24 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
               <Ear className="w-5 h-5 text-[#72d4ef]" />
               <span className="text-[12px] font-bold text-on-surface-variant">Voice Distress Confidence</span>
             </div>
-            <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-[#72d4ef]'}`}>
-              {confidence}%
-            </span>
+            <div className="flex items-center gap-3">
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    lastBackendConfidenceRef.current = 75;
+                    setConfidence(75);
+                    setDistressDetected(true);
+                  }}
+                  className="px-2 py-1 rounded bg-[#72d4ef]/10 hover:bg-[#72d4ef]/20 border border-[#72d4ef]/20 text-[9px] uppercase tracking-wider font-extrabold text-[#72d4ef] transition-colors cursor-pointer"
+                >
+                  Test &gt;50%
+                </button>
+              )}
+              <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-[#72d4ef]'}`}>
+                {confidence}%
+              </span>
+            </div>
           </div>
 
           <div className="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
@@ -335,6 +432,22 @@ export default function MonitoringView({ onMonitoringChange, onRiskScoreChange, 
             <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/10 border border-primary/25 animate-in fade-in duration-300">
               <AlertTriangle className="w-4 h-4 text-primary animate-pulse" />
               <span className="text-xs font-bold text-primary uppercase tracking-wider">Threat Detected</span>
+            </div>
+          )}
+
+          {/* Conditional SOS Trigger when Voice Distress Confidence exceeds 50% */}
+          {confidence > 50 && (
+            <div className="pt-2 border-t border-white/5 animate-in slide-in-from-top duration-300">
+              <button
+                onClick={onTriggerSOS}
+                className="w-full py-3 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-widest rounded-xl shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-red-500/30"
+                style={{
+                  boxShadow: '0 0 15px rgba(220, 38, 38, 0.4)',
+                }}
+              >
+                <ShieldAlert className="w-4.5 h-4.5 animate-bounce" />
+                Flag SOS Emergency
+              </button>
             </div>
           )}
         </div>

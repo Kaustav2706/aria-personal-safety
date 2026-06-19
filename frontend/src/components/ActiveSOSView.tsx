@@ -12,6 +12,7 @@ interface ActiveSOSProps {
 export default function ActiveSOSView({ onCancelSOS, primaryContactName, incidentId, riskScore, transcript }: ActiveSOSProps) {
   const [timelineIndex, setTimelineIndex] = useState(1);
   const [waveHeights, setWaveHeights] = useState([12, 32, 48, 24, 40, 16, 36, 44, 20]);
+  const [showConfirmCancel, setShowConfirmCancel] = useState(false);
 
   useEffect(() => {
     const waveInterval = setInterval(() => {
@@ -212,18 +213,56 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName, inciden
           </button>
           
           <button 
-            onClick={() => {
-              const confirmCancel = window.confirm('Are you absolutely sure you want to cancel the Emergency SOS?');
-              if (confirmCancel) {
-                onCancelSOS();
-              }
-            }}
+            onClick={() => setShowConfirmCancel(true)}
             className="w-full h-14 border border-outline/35 bg-white/5 text-on-surface rounded-xl font-bold text-title-md flex items-center justify-center active:scale-95 transition-transform backdrop-blur-md cursor-pointer hover:bg-white/10"
           >
             Cancel False Alarm
           </button>
         </div>
       </footer>
+
+      {/* Custom Cancel False Alarm Confirmation Modal Dialog */}
+      {showConfirmCancel && (
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-xs glass-card p-6 border border-primary/20 space-y-6 text-center shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 bg-primary/10 border border-primary/20 rounded-full flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6 text-primary animate-pulse" />
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-base font-black text-primary uppercase tracking-wider">Cancel SOS Alert?</h3>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Are you sure you want to cancel the emergency alert? This will notify the dispatch center that you are safe.
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* Option 1: Yes, Cancel SOS */}
+              <button
+                onClick={() => {
+                  setShowConfirmCancel(false);
+                  onCancelSOS();
+                }}
+                className="w-full py-3 px-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white border border-red-500/30 rounded-xl font-black text-xs uppercase tracking-wider active:scale-[0.98] transition-all cursor-pointer safe-glow"
+                style={{
+                  boxShadow: '0 0 15px rgba(220, 38, 39, 0.3)'
+                }}
+              >
+                Yes, Cancel Alert
+              </button>
+
+              {/* Option 2: Keep SOS Active */}
+              <button
+                onClick={() => setShowConfirmCancel(false)}
+                className="w-full py-3 px-4 bg-surface-container hover:bg-surface-container-highest text-white border border-white/10 rounded-xl font-bold text-xs uppercase tracking-wider active:scale-[0.98] transition-all cursor-pointer"
+              >
+                Keep SOS Active
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -212,3 +212,21 @@ export const generateReport = asyncHandler(async (req, res) => {
     reportUrl: pdfUrl
   });
 });
+
+export const deleteIncident = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const deleted = await Incident.delete(id);
+
+  if (!deleted) {
+    return res.status(404).json({
+      success: false,
+      message: 'Incident record not found',
+      error: 'Not Found'
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Incident deleted successfully.'
+  });
+});

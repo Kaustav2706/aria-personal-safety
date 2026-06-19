@@ -50,9 +50,8 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
       setIsSubmitting(false);
     }
   }
-};
 
-return (
+  return (
   <div className="relative min-h-screen bg-[#1e0f0e] font-sans flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
     {/* Visual Backdrops */}
     <div className="absolute top-1/4 left-[-10%] w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />

@@ -19,58 +19,57 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
-    const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError('');
+    e.preventDefault();
+    setError('');
 
-      if (!fullName || !email || !emergencyPhone || !password) {
-        setError('Please fill out all mandatory fields.');
-        return;
-      }
+    if (!fullName || !email || !phone || !password) {
+      setError('Please fill out all mandatory fields.');
+      return;
+    }
 
-      if (password !== confirmPassword) {
-        setError('Passwords do not match.');
-        return;
-      }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
 
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters.');
-        return;
-      }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
 
-      setIsSubmitting(true);
+    setIsSubmitting(true);
 
-      try {
-        const res = await authService.register(fullName, email, emergencyPhone, password);
+    try {
+      const res = await authService.register(fullName, email, phone, password);
 
-        if (res.data.success) {
-          setToken(res.data.token);
-          setUser(res.data.user);
-          setRegisterSuccess(true);
+      if (res.data.success) {
+        setToken(res.data.token);
+        setUser(res.data.user);
+        setRegisterSuccess(true);
 
-          // Brief delay to show success state, then navigate
-          setTimeout(() => {
-            onRegisterComplete();
-            setIsSubmitting(false);
-          }, 800);
-        } else {
-          setError(res.data.message || 'Registration failed.');
+        // Brief delay to show success state, then navigate
+        setTimeout(() => {
+          onRegisterComplete();
           setIsSubmitting(false);
-        }
-      } catch (err: any) {
-        const msg = err?.response?.data?.message;
-        if (err?.response?.status === 400) {
-          setError(msg || 'Invalid registration details. Email may already be in use.');
-        } else if (err?.response?.status === 429) {
-          setError('Too many attempts. Please wait and try again.');
-        } else {
-          setError(msg || 'Server unavailable. Please check your connection.');
-        }
+        }, 800);
+      } else {
+        setError(res.data.message || 'Registration failed.');
         setIsSubmitting(false);
       }
-    };
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      if (err?.response?.status === 400) {
+        setError(msg || 'Invalid registration details. Email may already be in use.');
+      } else if (err?.response?.status === 429) {
+        setError('Too many attempts. Please wait and try again.');
+      } else {
+        setError(msg || 'Server unavailable. Please check your connection.');
+      }
+      setIsSubmitting(false);
+    }
+  };
 
-    return (
+  return (
       <div className="relative min-h-screen bg-[#1e0f0e] font-sans flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
         {/* Background Decor */}
         <div className="absolute top-[10%] left-[-15%] w-[80%] h-[30%] bg-primary/5 rounded-full blur-[100px] pointer-events-none" />

@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { IncidentItem } from '../types';
-import { CheckCircle2, ChevronRight, ShieldAlert, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ShieldAlert, RefreshCw, Trash } from 'lucide-react';
 
 interface HistoryViewProps {
   incidents: IncidentItem[];
   onSelectIncident: (incident: IncidentItem) => void;
   userAvatar: string;
   onRefresh?: () => Promise<void>;
+  onDeleteIncident?: (id: string) => void;
+  onResolveIncident?: (id: string) => void;
 }
 
-export default function HistoryView({ incidents, onSelectIncident, userAvatar, onRefresh }: HistoryViewProps) {
+export default function HistoryView({ incidents, onSelectIncident, userAvatar, onRefresh, onDeleteIncident, onResolveIncident }: HistoryViewProps) {
   const [filterActive, setFilterActive] = useState<'All' | 'Active' | 'Resolved'>('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -93,12 +95,27 @@ export default function HistoryView({ incidents, onSelectIncident, userAvatar, o
                 </h3>
               </div>
 
-              {/* Status capsule badge */}
-              <div className="status-pill px-3 py-1 rounded-full flex items-center gap-1.5 bg-surface-container/60 border border-white/5">
-                <span className={`w-2.5 h-2.5 rounded-full ${incident.status === 'Active' ? 'bg-primary animate-ping' : 'bg-secondary'}`} />
-                <span className={`text-[10px] font-black uppercase tracking-wider ${incident.status === 'Active' ? 'text-primary' : 'text-secondary'}`}>
-                  {incident.status}
-                </span>
+              <div className="flex items-center gap-2">
+                {/* Status capsule badge */}
+                <div className="status-pill px-3 py-1 rounded-full flex items-center gap-1.5 bg-surface-container/60 border border-white/5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${incident.status === 'Active' ? 'bg-primary animate-ping' : 'bg-secondary'}`} />
+                  <span className={`text-[10px] font-black uppercase tracking-wider ${incident.status === 'Active' ? 'text-primary' : 'text-secondary'}`}>
+                    {incident.status}
+                  </span>
+                </div>
+
+                {onDeleteIncident && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteIncident(incident.id);
+                    }}
+                    className="p-1.5 rounded bg-surface-container/60 hover:bg-red-950/20 text-on-surface-variant hover:text-red-400 border border-white/5 hover:border-red-900/30 transition-all cursor-pointer active:scale-90"
+                    title="Delete incident"
+                  >
+                    <Trash className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -125,7 +142,20 @@ export default function HistoryView({ incidents, onSelectIncident, userAvatar, o
             
             {/* View Details link footer */}
             <div className="flex justify-between items-center text-xs border-t border-white/5 pt-3 mt-1">
-              <span className="text-on-surface-variant">{incident.time}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-on-surface-variant">{incident.time}</span>
+                {incident.status === 'Active' && onResolveIncident && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onResolveIncident(incident.id);
+                    }}
+                    className="px-2.5 py-1 rounded bg-[#3394f1]/20 hover:bg-[#3394f1]/35 text-[#a2c9ff] text-[10px] font-extrabold uppercase tracking-wider border border-[#3394f1]/40 transition-all cursor-pointer active:scale-95"
+                  >
+                    Resolve
+                  </button>
+                )}
+              </div>
               <span className="text-secondary font-black flex items-center gap-1">
                 Inspect Feed
                 <ChevronRight className="w-4.5 h-4.5" />

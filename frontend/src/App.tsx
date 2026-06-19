@@ -118,8 +118,9 @@ export default function App() {
     }
 
     // Load contacts from local storage
-    seedDefaultContacts(seedContacts);
-    setContacts(getContacts());
+    const storedContacts = getContacts().filter(c => c.id !== '1' && c.id !== '2' && c.id !== '3');
+    saveContacts(storedContacts);
+    setContacts(storedContacts);
 
     // Connect Socket.IO
     connectSocket();
@@ -146,6 +147,14 @@ export default function App() {
           inc.id === data.incidentId ? { ...inc, status: 'Resolved' as const } : inc
         )
       );
+
+      // Auto-redirect to dashboard if currently active SOS incident is resolved
+      if (sosIncidentId && data.incidentId === sosIncidentId) {
+        setRiskScore(0);
+        setSosIncidentId(null);
+        setCurrentScreen('DASHBOARD');
+      }
+
       setActiveNotifications((prev) => [
         `✅ Incident ${data.incidentId} resolved.`,
         ...prev,
@@ -156,7 +165,7 @@ export default function App() {
       unsubCreated();
       unsubResolved();
     };
-  }, [currentScreen]);
+  }, [currentScreen, sosIncidentId]);
 
   // ── Backend health check ────────────────────────────────────────────────
   useEffect(() => {
@@ -207,7 +216,7 @@ export default function App() {
   };
 
   // ── SOS trigger ─────────────────────────────────────────────────────────
-  const handleTriggerSOS = async () => {
+  const handleTriggerSOS = async (triggerType: string = 'manual', extraInfo?: string) => {
     try {
       // Get current GPS
       let latitude = 0;
@@ -225,7 +234,10 @@ export default function App() {
       const formData = new FormData();
       formData.append('latitude', latitude.toString());
       formData.append('longitude', longitude.toString());
-      formData.append('triggerType', 'manual');
+      formData.append('triggerType', triggerType);
+      if (extraInfo) {
+        formData.append('audioTranscript', extraInfo);
+      }
 
       const res = await incidentService.create(formData);
 
@@ -250,6 +262,49 @@ export default function App() {
       setSosTranscript('Emergency SOS triggered.');
       setCurrentScreen('SOS_ACTIVE');
     }
+  };
+
+  const handleDeleteIncident = async (id: string) => {
+    const confirmDelete = window.confirm('Are you sure you want to permanently delete this incident record?');
+    if (!confirmDelete) return;
+    try {
+      const res = await incidentService.delete(id);
+      if (res.data.success) {
+        setIncidents((prev) => prev.filter((inc) => inc.id !== id));
+      }
+    } catch (err) {
+      console.error('[APP] Failed to delete incident:', err);
+      alert('Failed to delete incident. Please try again.');
+    }
+  };
+
+  const handleResolveIncident = async (id: string) => {
+    try {
+      const res = await incidentService.resolve(id);
+      if (res.data.success) {
+        setIncidents((prev) =>
+          prev.map((inc) =>
+            inc.id === id ? { ...inc, status: 'Resolved' as const } : inc
+          )
+        );
+      }
+    } catch (err) {
+      console.error('[APP] Failed to resolve incident:', err);
+      alert('Failed to resolve incident. Please try again.');
+    }
+  };
+
+  const handleCancelSOS = async () => {
+    if (sosIncidentId) {
+      try {
+        await incidentService.resolve(sosIncidentId);
+      } catch (err) {
+        console.warn('[SOS] Failed to resolve cancelled incident on backend:', err);
+      }
+    }
+    setRiskScore(0);
+    setSosIncidentId(null);
+    setCurrentScreen('DASHBOARD');
   };
 
   // ── Logout handler ──────────────────────────────────────────────────────
@@ -408,6 +463,7 @@ export default function App() {
               const newItem = backendToIncidentItem(inc);
               setIncidents((prev) => [newItem, ...prev]);
             }}
+            onTriggerSOS={handleTriggerSOS}
           />
         )}
 
@@ -417,11 +473,7 @@ export default function App() {
 
         {currentScreen === 'SOS_ACTIVE' && (
           <ActiveSOSView 
-            onCancelSOS={() => {
-              setRiskScore(0);
-              setSosIncidentId(null);
-              setCurrentScreen('DASHBOARD');
-            }}
+            onCancelSOS={handleCancelSOS}
             primaryContactName={contacts[0]?.name || 'Emergency Contact'}
             incidentId={sosIncidentId}
             riskScore={sosRiskScore}
@@ -447,6 +499,8 @@ export default function App() {
                 console.warn('[APP] Failed to refresh incidents:', err);
               }
             }}
+            onDeleteIncident={handleDeleteIncident}
+            onResolveIncident={handleResolveIncident}
           />
         )}
 

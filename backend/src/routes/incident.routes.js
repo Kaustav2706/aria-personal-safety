@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { createIncident, getIncidents, getIncidentById, resolveIncident, generateReport } from '../controllers/incident.controller.js';
+import { createIncident, getIncidents, getIncidentById, resolveIncident, generateReport, deleteIncident } from '../controllers/incident.controller.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -17,6 +17,9 @@ router.get('/:id', getIncidentById);
 
 // PUT /api/incidents/:id/resolve
 router.put('/:id/resolve', resolveIncident);
+
+// DELETE /api/incidents/:id
+router.delete('/:id', deleteIncident);
 
 // POST /api/report/generate
 router.post('/report/generate', generateReport);

@@ -263,5 +263,42 @@ export class Incident {
       throw err;
     }
   }
+
+  static async delete(id) {
+    if (dbMode === 'memory') {
+      const idx = memoryIncidents.findIndex(i => i.id === id);
+      if (idx === -1) return false;
+      memoryIncidents.splice(idx, 1);
+      
+      // Clear location history for this incident
+      for (let i = memoryLocationHistory.length - 1; i >= 0; i--) {
+        if (memoryLocationHistory[i].incidentId === id) {
+          memoryLocationHistory.splice(i, 1);
+        }
+      }
+      return true;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM location_history WHERE incident_id = $1', [id]);
+      
+      try {
+        await client.query('DELETE FROM reports WHERE incident_id = $1', [id]);
+      } catch (err) {
+        // Table reports might not exist or already be cascade deleted
+      }
+      
+      const res = await client.query('DELETE FROM incidents WHERE id = $1', [id]);
+      await client.query('COMMIT');
+      return res.rowCount > 0;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
 }
 export default Incident;

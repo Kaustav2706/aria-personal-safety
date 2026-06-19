@@ -13,7 +13,6 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
-  const [newPriority, setNewPriority] = useState<'High' | 'Medium' | 'Low'>('High');
   const [error, setError] = useState('');
 
   const handleAdd = () => {
@@ -26,13 +25,12 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
     onAddContact({
       name: newName.trim(),
       phone: newPhone.trim(),
-      priority: newPriority,
+      priority: 'High',
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(newName.trim())}&background=2c1b1a&color=fadcd8&size=200`,
     });
 
     setNewName('');
     setNewPhone('');
-    setNewPriority('High');
     setShowAddForm(false);
   };
 
@@ -97,22 +95,6 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
             className="w-full h-11 bg-surface-container-lowest text-on-surface rounded-xl border border-white/10 px-4 text-sm focus:outline-none focus:border-primary"
           />
 
-          <div className="flex gap-2">
-            {(['High', 'Medium', 'Low'] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setNewPriority(p)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border cursor-pointer transition-all ${
-                  newPriority === p 
-                    ? priorityColor(p)
-                    : 'bg-surface-container text-on-surface-variant border-white/5'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-
           <div className="flex gap-2 pt-1">
             <button
               onClick={() => { setShowAddForm(false); setError(''); }}
@@ -150,9 +132,7 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
               <p className="text-xs text-on-surface-variant font-medium truncate">{contact.phone}</p>
             </div>
 
-            <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border shrink-0 ${priorityColor(contact.priority)}`}>
-              {contact.priority}
-            </span>
+
 
             <div className="flex items-center gap-1.5 shrink-0">
               <button
