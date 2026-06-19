@@ -7,6 +7,8 @@ interface DashboardViewProps {
   userName: string;
   userAvatar: string;
   riskScore: number;
+  backendOnline: boolean;
+  monitoringActive: boolean;
 }
 
 export default function DashboardView({ 
@@ -14,7 +16,9 @@ export default function DashboardView({
   onGoToScreen,
   userName, 
   userAvatar,
-  riskScore 
+  riskScore,
+  backendOnline,
+  monitoringActive,
 }: DashboardViewProps) {
   // Wave heights state for ambient voice feed representation
   const [waveHeights, setWaveHeights] = useState([8, 16, 24, 12, 10, 4]);
@@ -22,7 +26,9 @@ export default function DashboardView({
   const [holdPercent, setHoldProgress] = useState(0);
   const isPressing = useRef(false);
   const animationFrameId = useRef<number | null>(null);
-  const pressTimer = useRef<number | null>(null);
+
+  // Live GPS coordinates
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     const waveInterval = setInterval(() => {
@@ -37,6 +43,24 @@ export default function DashboardView({
     }, 150);
 
     return () => clearInterval(waveInterval);
+  }, []);
+
+  // Get live GPS
+  useEffect(() => {
+    let watchId: number;
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        () => {
+          // GPS unavailable — use fallback
+          setGpsCoords({ lat: 37.7749, lng: -122.4194 });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
   }, []);
 
   // Custom long press implementation for SOS activation (2 seconds)
@@ -74,6 +98,8 @@ export default function DashboardView({
     onTriggerSOS();
   };
 
+  const safeStatus = riskScore < 50;
+
   return (
     <div className="pt-24 pb-36 px-6 font-sans">
       
@@ -82,32 +108,32 @@ export default function DashboardView({
         <div className="absolute inset-0 bg-[#3394f1]/5 pointer-events-none" />
         
         <div className="relative z-10 space-y-3">
-          <div className="w-16 h-16 rounded-full bg-secondary/10 flex items-center justify-center mx-auto ring-4 ring-secondary/5">
-            <ShieldCheck className="w-10 h-10 text-secondary" />
+          <div className={`w-16 h-16 rounded-full ${safeStatus ? 'bg-secondary/10 ring-4 ring-secondary/5' : 'bg-primary/10 ring-4 ring-primary/5'} flex items-center justify-center mx-auto`}>
+            <ShieldCheck className={`w-10 h-10 ${safeStatus ? 'text-secondary' : 'text-primary'}`} />
           </div>
           
-          <h2 className="text-display-lg font-black tracking-tighter text-secondary select-none">
-            SAFE
+          <h2 className={`text-display-lg font-black tracking-tighter ${safeStatus ? 'text-secondary' : 'text-primary'} select-none`}>
+            {safeStatus ? 'SAFE' : 'ELEVATED'}
           </h2>
           <p className="text-body-sm text-on-surface-variant font-medium opacity-90 select-none">
-            Your environment is currently stable
+            {safeStatus ? 'Your environment is currently stable' : `Risk level elevated — score: ${riskScore}`}
           </p>
         </div>
       </section>
 
       {/* Connection Status Chips */}
       <div className="flex flex-wrap gap-2 mt-4 overflow-x-auto no-scrollbar py-1">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-secondary text-[10px] font-bold uppercase tracking-wider border border-white/5 whitespace-nowrap">
-          <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-          <span>Backend Connected</span>
+        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-[10px] font-bold uppercase tracking-wider border border-white/5 whitespace-nowrap ${backendOnline ? 'text-secondary' : 'text-red-400'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${backendOnline ? 'bg-secondary animate-pulse' : 'bg-red-500'}`} />
+          <span>{backendOnline ? 'Backend Connected' : 'Backend Offline'}</span>
         </div>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-secondary text-[10px] font-bold uppercase tracking-wider border border-white/5 whitespace-nowrap">
           <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
           <span>AI Connected</span>
         </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-secondary text-[10px] font-bold uppercase tracking-wider border border-white/5 whitespace-nowrap">
-          <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-          <span>GPS Connected</span>
+        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-[10px] font-bold uppercase tracking-wider border border-white/5 whitespace-nowrap ${gpsCoords ? 'text-secondary' : 'text-yellow-400'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${gpsCoords ? 'bg-secondary animate-pulse' : 'bg-yellow-400'}`} />
+          <span>{gpsCoords ? 'GPS Connected' : 'GPS Pending'}</span>
         </div>
       </div>
 
@@ -121,8 +147,12 @@ export default function DashboardView({
         >
           <div className="flex justify-between items-start">
             <Mic className="w-5 h-5 text-on-surface-variant opacity-80" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-secondary bg-secondary/10 px-2 py-0.5 rounded-full border border-secondary/15">
-              ACTIVE
+            <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+              monitoringActive 
+                ? 'text-secondary bg-secondary/10 border-secondary/15' 
+                : 'text-on-surface-variant bg-surface-container border-white/10'
+            }`}>
+              {monitoringActive ? 'ACTIVE' : 'IDLE'}
             </span>
           </div>
 
@@ -132,7 +162,7 @@ export default function DashboardView({
               {waveHeights.map((h, i) => (
                 <div 
                   key={i} 
-                  className="w-1 bg-secondary rounded-full" 
+                  className={`w-1 rounded-full ${monitoringActive ? 'bg-secondary' : 'bg-on-surface-variant/30'}`}
                   style={{ height: `${h}px` }} 
                 />
               ))}
@@ -167,12 +197,12 @@ export default function DashboardView({
           <div 
             className="relative w-24 h-24 flex items-center justify-center rounded-full"
             style={{
-              background: `conic-gradient(#ff544c ${riskScore * 3.6}deg, #2c1b1a 0deg)`
+              background: `conic-gradient(${riskScore >= 50 ? '#ff544c' : '#a2c9ff'} ${riskScore * 3.6}deg, #2c1b1a 0deg)`
             }}
           >
             {/* Center black cutout */}
             <div className="absolute inset-2 bg-surface-container rounded-full flex flex-col items-center justify-center">
-              <span className="text-2xl font-black text-primary leading-none">{riskScore}</span>
+              <span className={`text-2xl font-black leading-none ${riskScore >= 50 ? 'text-primary' : 'text-secondary'}`}>{riskScore}</span>
               <span className="text-[8px] uppercase tracking-wider text-on-surface-variant font-black mt-0.5">Risk</span>
             </div>
           </div>
@@ -201,7 +231,11 @@ export default function DashboardView({
 
           <div className="relative z-10 space-y-0.5">
             <p className="text-label-md text-on-surface-variant font-semibold uppercase tracking-wider">Coordinates</p>
-            <p className="text-[11px] font-mono text-white/95">37.7749° N, 122.4194° W</p>
+            <p className="text-[11px] font-mono text-white/95">
+              {gpsCoords 
+                ? `${gpsCoords.lat.toFixed(4)}° N, ${Math.abs(gpsCoords.lng).toFixed(4)}° W`
+                : 'Acquiring GPS...'}
+            </p>
           </div>
         </div>
       </section>
