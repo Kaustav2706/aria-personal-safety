@@ -4,8 +4,10 @@ import io from 'socket.io-client';
 import axios from 'axios';
 import { AlertOctagon, CheckCircle2, ShieldAlert, ArrowRight, ArrowUpRight, Phone, MapPin, Activity, Users, Clock, TrendingUp, Radio, Zap, Eye } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
-const SOCKET_URL = 'http://localhost:5000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
+const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -55,7 +57,7 @@ export default function Dashboard() {
 
   const fetchIncidents = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/incidents`);
+      const res = await axios.get(`${API_BASE}/police/incidents`, { headers: policeHeaders });
       setIncidents(res.data.incidents || []);
     } catch (err) {
       console.error('Failed to load incidents:', err);
@@ -65,7 +67,7 @@ export default function Dashboard() {
   const handleResolve = async (id, e) => {
     e.stopPropagation();
     try {
-      await axios.put(`${API_BASE}/incidents/${id}/resolve`);
+      await axios.put(`${API_BASE}/police/incidents/${id}/resolve`, {}, { headers: policeHeaders });
       fetchIncidents();
     } catch (err) {
       console.error('Error resolving incident:', err);

@@ -107,7 +107,8 @@ export const createIncident = asyncHandler(async (req, res) => {
 });
 
 export const getIncidents = asyncHandler(async (req, res) => {
-  const list = await Incident.findAll();
+  const userId = req.userId;
+  const list = await Incident.findByUserId(userId);
   
   const enrichedList = await Promise.all(list.map(async (inc) => {
     const user = await User.findById(inc.userId);
@@ -125,6 +126,7 @@ export const getIncidents = asyncHandler(async (req, res) => {
 });
 
 export const getIncidentById = asyncHandler(async (req, res) => {
+  const userId = req.userId;
   const { id } = req.params;
   const incident = await Incident.findById(id);
 
@@ -133,6 +135,15 @@ export const getIncidentById = asyncHandler(async (req, res) => {
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
+    });
+  }
+
+  // Verify ownership
+  if (incident.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
     });
   }
 
@@ -148,6 +159,7 @@ export const getIncidentById = asyncHandler(async (req, res) => {
 });
 
 export const resolveIncident = asyncHandler(async (req, res) => {
+  const userId = req.userId;
   const { id } = req.params;
   const incident = await Incident.findById(id);
 
@@ -156,6 +168,15 @@ export const resolveIncident = asyncHandler(async (req, res) => {
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
+    });
+  }
+
+  // Verify ownership
+  if (incident.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
     });
   }
 
@@ -175,6 +196,7 @@ export const resolveIncident = asyncHandler(async (req, res) => {
 });
 
 export const generateReport = asyncHandler(async (req, res) => {
+  const userId = req.userId;
   const { incidentId } = req.body;
   if (!incidentId) {
     return res.status(400).json({
@@ -190,6 +212,15 @@ export const generateReport = asyncHandler(async (req, res) => {
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
+    });
+  }
+
+  // Verify ownership
+  if (incident.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
     });
   }
 

@@ -5,8 +5,10 @@ import axios from 'axios';
 import L from 'leaflet';
 import { AlertCircle, Navigation, ShieldAlert, MapPin, Phone, Clock, Crosshair, CheckCircle2, Radio } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
-const SOCKET_URL = 'http://localhost:5000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
+const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
 
 export default function LiveMap() {
   const mapRef = useRef(null);
@@ -181,7 +183,8 @@ export default function LiveMap() {
 
   const fetchActiveIncidents = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/incidents`);
+      const res = await axios.get(`${API_BASE}/police/incidents`, { headers: policeHeaders });
+      // Keep all incidents (active and resolved) to show on the live map
       setIncidents(res.data.incidents || []);
     } catch (err) {
       console.error('Error fetching dashboard incidents:', err);
@@ -208,7 +211,8 @@ export default function LiveMap() {
   const handleResolveSelected = async () => {
     if (!selectedIncident) return;
     try {
-      await axios.put(`${API_BASE}/incidents/${selectedIncident.id}/resolve`);
+      await axios.put(`${API_BASE}/police/incidents/${selectedIncident.id}/resolve`, {}, { headers: policeHeaders });
+      // Update state status to resolved instead of deleting
       setIncidents(prev => prev.map(i =>
         i.id === selectedIncident.id ? { ...i, status: 'resolved' } : i
       ));

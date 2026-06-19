@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Download, ShieldAlert, AlertTriangle, MapPin, User, Phone, Volume2, Play, Pause, Clock, Crosshair, Shield, FileText, Radio } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
+const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
 
 export default function ReportView() {
   const { id } = useParams();
@@ -21,7 +23,7 @@ export default function ReportView() {
 
   const fetchIncidentDetails = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/incidents/${id}`);
+      const res = await axios.get(`${API_BASE}/police/incidents/${id}`, { headers: policeHeaders });
       setData(res.data);
     } catch (err) {
       console.error('Error loading incident details:', err);
@@ -33,7 +35,7 @@ export default function ReportView() {
   const handleGenerateReport = async () => {
     setDownloading(true);
     try {
-      const res = await axios.post(`${API_BASE}/report/generate`, { incidentId: id });
+      const res = await axios.post(`${API_BASE}/police/report/generate`, { incidentId: id }, { headers: policeHeaders });
       setPdfLink(res.data.reportUrl);
       window.open(res.data.reportUrl, '_blank');
     } catch (err) {
