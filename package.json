@@ -4,6 +4,8 @@
   "description": "ARIA (AI Real-time Incident Assistant) Safety Platform Monorepo",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
     "install:all": "npm run install:backend && npm run install:dashboard && npm run install:mobile",
     "install:backend": "cd backend && npm install",
     "install:dashboard": "cd police-dashboard && npm install",
@@ -11,6 +13,28 @@
     "start:backend": "cd backend && npm start",
     "start:dashboard": "cd police-dashboard && npm run dev",
     "start:mobile": "cd mobile && npm run start"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/leaflet": "^1.9.21",
+    "@vitejs/plugin-react": "^5.0.4",
+    "axios": "^1.7.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-leaflet": "^5.0.0",
+    "socket.io-client": "^4.7.0",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2"
   },
   "keywords": [
     "monorepo",

@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { initialProfile, initialContacts, initialIncidents } from './data';
-import { UserProfile, EmergencyContact, IncidentItem, Screen } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { defaultProfile, seedContacts } from './data';
+import { UserProfile, EmergencyContact, IncidentItem, Screen, BackendIncident } from './types';
+
+// Services
+import { isAuthenticated, logout as authLogout, getUser, setToken, setUser, getToken } from './services/auth';
+import { profileService, incidentService, healthService } from './services/api';
+import { connectSocket, disconnectSocket, onIncidentCreated, onIncidentResolved } from './services/socket';
+import { getContacts, saveContacts, seedDefaultContacts, addContact as addContactLocal, removeContact as removeContactLocal } from './services/contacts';
 
 // Views
 import SplashView from './components/SplashView';
@@ -21,92 +27,245 @@ import ContactsView from './components/ContactsView';
 // Nav and layout helpers
 import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTriangle, Radio } from 'lucide-react';
 
+// ── Helper: Convert BackendIncident to frontend IncidentItem ────────────────
+function backendToIncidentItem(inc: BackendIncident): IncidentItem {
+  const d = new Date(inc.createdAt);
+  return {
+    id: inc.id,
+    date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    title: `Incident #${inc.id.slice(-6).toUpperCase()}`,
+    riskScore: inc.riskScore,
+    location: `${inc.latitude.toFixed(4)}°, ${inc.longitude.toFixed(4)}°`,
+    coordinates: `${inc.latitude.toFixed(4)}° N, ${inc.longitude.toFixed(4)}° W`,
+    mapImage: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=500',
+    status: inc.status === 'active' ? 'Active' : 'Resolved',
+    audioSnippet: inc.audioTranscript || 'No audio transcript available.',
+    timeline: [
+      {
+        id: 't-created',
+        time: d.toLocaleTimeString(),
+        title: 'Incident Created',
+        description: `Trigger: ${inc.triggerType}. Risk score: ${inc.riskScore}%.`,
+        type: 'critical' as const,
+      },
+    ],
+  };
+}
+
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen | 'CONTACTS'>('SPLASH');
-  
+  const [currentScreen, setCurrentScreen] = useState<Screen>('SPLASH');
+
   // Core state collections
-  const [profile, setProfile] = useState<UserProfile>(initialProfile);
-  const [contacts, setContacts] = useState<EmergencyContact[]>(initialContacts);
-  const [incidents, setIncidents] = useState<IncidentItem[]>(initialIncidents);
+  const [profile, setProfile] = useState<UserProfile>(defaultProfile);
+  const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+  const [incidents, setIncidents] = useState<IncidentItem[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<IncidentItem | null>(null);
-  
-  // Interactive simulations
-  const [riskScore, setRiskScore] = useState(12);
-  const [activeNotifications, setActiveNotifications] = useState<string[]>([
-    'Welcome to ARIA. Safe space telemetry is active.',
-    'GPS Coordinates Locked: Precision level high.'
-  ]);
+
+  // Live state
+  const [riskScore, setRiskScore] = useState(0);
+  const [monitoringActive, setMonitoringActive] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(false);
+  const [activeNotifications, setActiveNotifications] = useState<string[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSimPanel, setShowSimPanel] = useState(false);
 
-  // Fallbacks for profile updates
+  // SOS state
+  const [sosIncidentId, setSosIncidentId] = useState<string | null>(null);
+  const [sosRiskScore, setSosRiskScore] = useState(0);
+  const [sosTranscript, setSosTranscript] = useState('');
+
+  // ── Auth state check on mount ───────────────────────────────────────────
+  useEffect(() => {
+    // Listen for 401 unauthorized events from the API interceptor
+    const handleUnauthorized = () => {
+      authLogout();
+      setProfile(defaultProfile);
+      setCurrentScreen('SECURE_LOGIN');
+    };
+    window.addEventListener('aria:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('aria:unauthorized', handleUnauthorized);
+  }, []);
+
+  // ── Load user data after authentication ─────────────────────────────────
+  const loadUserData = useCallback(async () => {
+    try {
+      // Load profile from backend
+      const profileRes = await profileService.getProfile();
+      if (profileRes.data.success && profileRes.data.user) {
+        const u = profileRes.data.user;
+        setProfile({
+          name: u.name || 'User',
+          email: u.email || '',
+          avatar: defaultProfile.avatar,
+          phone: u.phone || '',
+          emergencyPhone: u.phone || '',
+        });
+      }
+    } catch (err) {
+      console.warn('[APP] Failed to load profile:', err);
+    }
+
+    try {
+      // Load incidents from backend
+      const incidentsRes = await incidentService.getAll();
+      if (incidentsRes.data.success && incidentsRes.data.incidents) {
+        const mapped = incidentsRes.data.incidents.map(backendToIncidentItem);
+        setIncidents(mapped);
+      }
+    } catch (err) {
+      console.warn('[APP] Failed to load incidents:', err);
+    }
+
+    // Load contacts from local storage
+    seedDefaultContacts(seedContacts);
+    setContacts(getContacts());
+
+    // Connect Socket.IO
+    connectSocket();
+  }, []);
+
+  // ── Socket event listeners ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+
+    const unsubCreated = onIncidentCreated((data: any) => {
+      console.log('[SOCKET] Incident created:', data);
+      const newItem = backendToIncidentItem(data);
+      setIncidents((prev) => [newItem, ...prev]);
+      setActiveNotifications((prev) => [
+        `🚨 New incident detected: ${data.id}`,
+        ...prev,
+      ]);
+    });
+
+    const unsubResolved = onIncidentResolved((data: { incidentId: string }) => {
+      console.log('[SOCKET] Incident resolved:', data);
+      setIncidents((prev) =>
+        prev.map((inc) =>
+          inc.id === data.incidentId ? { ...inc, status: 'Resolved' as const } : inc
+        )
+      );
+      setActiveNotifications((prev) => [
+        `✅ Incident ${data.incidentId} resolved.`,
+        ...prev,
+      ]);
+    });
+
+    return () => {
+      unsubCreated();
+      unsubResolved();
+    };
+  }, [currentScreen]);
+
+  // ── Backend health check ────────────────────────────────────────────────
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    
+    const checkHealth = async () => {
+      try {
+        const res = await healthService.check();
+        setBackendOnline(res.data.success === true);
+      } catch {
+        setBackendOnline(false);
+      }
+    };
+
+    if (isAuthenticated()) {
+      checkHealth();
+      interval = setInterval(checkHealth, 30000);
+    }
+
+    return () => { if (interval) clearInterval(interval); };
+  }, [currentScreen]);
+
+  // ── Profile updates ─────────────────────────────────────────────────────
   const handleUpdateProfile = (updated: UserProfile) => {
     setProfile(updated);
   };
 
-  // Contacts mutations
+  // ── Contacts mutations ──────────────────────────────────────────────────
   const handleAddContact = (newContact: Omit<EmergencyContact, 'id'>) => {
-    const created: EmergencyContact = {
-      ...newContact,
-      id: `c-${Date.now()}`
-    };
-    setContacts((prev) => [...prev, created]);
+    const created = addContactLocal(newContact);
+    setContacts(getContacts());
   };
 
   const handleDeleteContact = (id: string) => {
-    setContacts((prev) => prev.filter((cnt) => cnt.id !== id));
+    removeContactLocal(id);
+    setContacts(getContacts());
   };
 
-  // Authenticate triggers
-  const handleLoginSuccess = (email: string, name: string) => {
-    setProfile((prev) => ({
-      ...prev,
-      name,
-      email,
-    }));
+  // ── Authentication handlers ─────────────────────────────────────────────
+  const handleLoginSuccess = async () => {
+    await loadUserData();
     setCurrentScreen('DASHBOARD');
   };
 
-  const handleRegisterComplete = (email: string, name: string, emergencyPhone: string) => {
-    setProfile((prev) => ({
-      ...prev,
-      name,
-      email,
-      emergencyPhone,
-    }));
+  const handleRegisterComplete = async () => {
+    await loadUserData();
     setCurrentScreen('DASHBOARD');
   };
 
-  // Triggering the Active SOS Screen state
-  const handleTriggerSOS = () => {
-    // Append a mock active incident to history
-    const freshIncident: IncidentItem = {
-      id: `AR-${Math.floor(Math.random() * 9000) + 1000}`,
-      date: 'Today',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      title: 'Current SOS Dispatch',
-      riskScore: 92,
-      location: 'Current GPS Coordinates',
-      coordinates: '37.7749° N, 122.4194° W',
-      mapImage: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=400',
-      status: 'Active',
-      audioSnippet: '"...dispatch route synced, backup units mobilized..."',
-      timeline: [
-        {
-          id: 's1',
-          time: 'Active',
-          title: 'Emergency SOS Broadcasted',
-          description: 'Live coordinate streaming and audio feeds routing to Municipal dispatch.',
-          type: 'critical'
-        }
-      ]
-    };
+  // ── SOS trigger ─────────────────────────────────────────────────────────
+  const handleTriggerSOS = async () => {
+    try {
+      // Get current GPS
+      let latitude = 0;
+      let longitude = 0;
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+        );
+        latitude = pos.coords.latitude;
+        longitude = pos.coords.longitude;
+      } catch {
+        console.warn('[SOS] GPS unavailable, using defaults.');
+      }
 
-    setIncidents((prev) => [freshIncident, ...prev]);
-    setCurrentScreen('SOS_ACTIVE');
+      const formData = new FormData();
+      formData.append('latitude', latitude.toString());
+      formData.append('longitude', longitude.toString());
+      formData.append('triggerType', 'manual');
+
+      const res = await incidentService.create(formData);
+
+      if (res.data.success && res.data.incident) {
+        const inc = res.data.incident;
+        setSosIncidentId(inc.id);
+        setSosRiskScore(inc.riskScore);
+        setSosTranscript(inc.audioTranscript || '');
+        setRiskScore(inc.riskScore);
+
+        // Add to local incidents list
+        const newItem = backendToIncidentItem(inc);
+        setIncidents((prev) => [newItem, ...prev]);
+
+        setCurrentScreen('SOS_ACTIVE');
+      }
+    } catch (err: any) {
+      console.error('[SOS] Failed to create incident:', err);
+      // Fallback: still go to SOS screen with mock data
+      setSosIncidentId('SOS-' + Date.now());
+      setSosRiskScore(80);
+      setSosTranscript('Emergency SOS triggered.');
+      setCurrentScreen('SOS_ACTIVE');
+    }
   };
 
-  // Safe navigation checker bounds
+  // ── Logout handler ──────────────────────────────────────────────────────
+  const handleLogout = () => {
+    const out = window.confirm('Logout of safe session?');
+    if (out) {
+      authLogout();
+      disconnectSocket();
+      setProfile(defaultProfile);
+      setIncidents([]);
+      setRiskScore(0);
+      setCurrentScreen('SECURE_LOGIN');
+    }
+  };
+
+  // ── Navigation helpers ──────────────────────────────────────────────────
   const hasBottomNav = [
     'DASHBOARD',
     'MONITORING',
@@ -124,7 +283,14 @@ export default function App() {
         
         {/* Core Screen Layout Handlers */}
         {currentScreen === 'SPLASH' && (
-          <SplashView onComplete={() => setCurrentScreen('ONBOARDING_1')} />
+          <SplashView onComplete={() => {
+            if (isAuthenticated()) {
+              loadUserData();
+              setCurrentScreen('DASHBOARD');
+            } else {
+              setCurrentScreen('ONBOARDING_1');
+            }
+          }} />
         )}
         
         {currentScreen === 'ONBOARDING_1' && (
@@ -197,7 +363,9 @@ export default function App() {
                 className="w-10 h-10 rounded-full bg-surface-container-highest/20 hover:bg-surface-container-highest flex items-center justify-center text-primary active:scale-95 transition-all cursor-pointer relative"
               >
                 <Bell className="w-5 h-5" />
-                <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-primary" />
+                {activeNotifications.length > 0 && (
+                  <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-primary" />
+                )}
               </button>
 
               {/* Toast Panel Dropdown */}
@@ -238,11 +406,20 @@ export default function App() {
             userName={profile.name}
             userAvatar={profile.avatar}
             riskScore={riskScore}
+            backendOnline={backendOnline}
+            monitoringActive={monitoringActive}
           />
         )}
 
         {currentScreen === 'MONITORING' && (
-          <MonitoringView />
+          <MonitoringView 
+            onMonitoringChange={setMonitoringActive}
+            onRiskScoreChange={setRiskScore}
+            onIncidentCreated={(inc) => {
+              const newItem = backendToIncidentItem(inc);
+              setIncidents((prev) => [newItem, ...prev]);
+            }}
+          />
         )}
 
         {currentScreen === 'SAFE_RIDE' && (
@@ -252,10 +429,14 @@ export default function App() {
         {currentScreen === 'SOS_ACTIVE' && (
           <ActiveSOSView 
             onCancelSOS={() => {
-              setRiskScore(12);
+              setRiskScore(0);
+              setSosIncidentId(null);
               setCurrentScreen('DASHBOARD');
             }}
-            primaryContactName={contacts[0]?.name || 'Sarah Miller'}
+            primaryContactName={contacts[0]?.name || 'Emergency Contact'}
+            incidentId={sosIncidentId}
+            riskScore={sosRiskScore}
+            transcript={sosTranscript}
           />
         )}
 
@@ -266,6 +447,16 @@ export default function App() {
             onSelectIncident={(inc) => {
               setSelectedIncident(inc);
               setCurrentScreen('INCIDENT_DETAILS');
+            }}
+            onRefresh={async () => {
+              try {
+                const res = await incidentService.getAll();
+                if (res.data.success && res.data.incidents) {
+                  setIncidents(res.data.incidents.map(backendToIncidentItem));
+                }
+              } catch (err) {
+                console.warn('[APP] Failed to refresh incidents:', err);
+              }
             }}
           />
         )}
@@ -281,10 +472,7 @@ export default function App() {
           <ProfileView 
             profile={profile}
             onUpdateProfile={handleUpdateProfile}
-            onLogout={() => {
-              const out = window.confirm('Logout of safe session?');
-              if (out) setCurrentScreen('SECURE_LOGIN');
-            }}
+            onLogout={handleLogout}
           />
         )}
 
@@ -391,6 +579,14 @@ export default function App() {
               </span>
             </div>
 
+            {/* Backend Status */}
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-surface-container/60">
+              <span className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-secondary animate-pulse' : 'bg-red-500'}`} />
+              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                Backend: {backendOnline ? 'Online' : 'Offline'}
+              </span>
+            </div>
+
             {/* Simulator Triggers */}
             <div className="space-y-2">
               <h4 className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest pl-1">
@@ -398,24 +594,17 @@ export default function App() {
               </h4>
               <button 
                 onClick={() => {
-                  setRiskScore(92);
-                  setActiveNotifications((prev) => [
-                    'Decibel Alarm: High decibel spike detected!',
-                    ...prev
-                  ]);
-                  setCurrentScreen('SOS_ACTIVE');
-                  alert('Decibel Anomaly Mocked: Automatic SOS response initiated!');
+                  handleTriggerSOS();
                 }}
                 className="w-full text-left p-2.5 rounded-xl bg-primary/10 hover:bg-primary/15 text-primary text-xs font-semibold leading-relaxed border border-primary/20 cursor-pointer flex items-center gap-2"
               >
                 <AlertTriangle className="w-4 h-4" />
-                Trigger Voice Distress (Risk 92)
+                Trigger SOS (Live Backend)
               </button>
 
               <button 
                 onClick={() => {
                   setCurrentScreen('SAFE_RIDE');
-                  alert('Ride anomaly simulated! Unplanned deviation alert broadcasted in SafeRide screen.');
                 }}
                 className="w-full text-left p-2.5 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/15 text-yellow-300 text-xs font-semibold leading-relaxed border border-yellow-500/20 cursor-pointer flex items-center gap-2"
               >
@@ -434,15 +623,11 @@ export default function App() {
                   'SPLASH', 'ONBOARDING_1', 'ONBOARDING_2', 'PERMISSION_SETUP', 
                   'SECURE_LOGIN', 'SECURE_SIGNUP', 'DASHBOARD', 'CONTACTS',
                   'MONITORING', 'SAFE_RIDE', 'SOS_ACTIVE', 'HISTORY', 'PROFILE'
-                ] as const).map((scKey) => (
+                ] as Screen[]).map((scKey) => (
                   <button
                     key={scKey}
                     onClick={() => {
-                      if (scKey === 'CONTACTS') {
-                        setCurrentScreen('CONTACTS');
-                      } else {
-                        setCurrentScreen(scKey as Screen);
-                      }
+                      setCurrentScreen(scKey);
                       setShowSimPanel(false);
                     }}
                     className={`py-1.5 px-2 rounded-lg text-left text-[9px] uppercase tracking-wider font-bold truncate transition-colors duration-150 cursor-pointer ${

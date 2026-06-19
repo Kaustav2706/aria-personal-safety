@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle } from 'lucide-react';
+import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { authService } from '../services/api';
+import { setToken, setUser } from '../services/auth';
 
 interface SignupProps {
-  onRegisterComplete: (email: string, name: string, emergencyPhone: string) => void;
+  onRegisterComplete: () => void;
   onGoToLogin: () => void;
 }
 
@@ -14,22 +16,57 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !emergencyPhone) {
-      alert('Please fill out all mandatory fields.');
+    setError('');
+
+    if (!fullName || !email || !emergencyPhone || !password) {
+      setError('Please fill out all mandatory fields.');
       return;
     }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setRegisterSuccess(true);
-      setTimeout(() => {
-        onRegisterComplete(email, fullName, emergencyPhone);
+    try {
+      const res = await authService.register(fullName, email, emergencyPhone, password);
+
+      if (res.data.success) {
+        setToken(res.data.token);
+        setUser(res.data.user);
+        setRegisterSuccess(true);
+
+        // Brief delay to show success state, then navigate
+        setTimeout(() => {
+          onRegisterComplete();
+          setIsSubmitting(false);
+        }, 800);
+      } else {
+        setError(res.data.message || 'Registration failed.');
         setIsSubmitting(false);
-      }, 1000);
-    }, 1500);
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      if (err?.response?.status === 400) {
+        setError(msg || 'Invalid registration details. Email may already be in use.');
+      } else if (err?.response?.status === 429) {
+        setError('Too many attempts. Please wait and try again.');
+      } else {
+        setError(msg || 'Server unavailable. Please check your connection.');
+      }
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -53,6 +90,14 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
         {/* Signup Form Card */}
         <section className="glass-card rounded-2xl p-6 shadow-2xl relative">
           <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Error Display */}
+            {error && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-error-container/20 border border-error/30 animate-in fade-in duration-200">
+                <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                <p className="text-xs text-error font-medium leading-relaxed">{error}</p>
+              </div>
+            )}
             
             {/* Full Name */}
             <div className="space-y-1">
@@ -75,7 +120,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
             {/* Emergency Contact Phone */}
             <div className="space-y-1">
               <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                Emergency Contact Phone
+                Phone Number
               </label>
               <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
@@ -150,7 +195,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
               <button 
                 type="submit"
                 disabled={isSubmitting}
-                className={`w-full h-14 bg-primary-container text-white rounded-xl font-bold text-title-md hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                className={`w-full h-14 bg-primary-container text-white rounded-xl font-bold text-title-md hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
                   registerSuccess ? 'bg-tertiary-container' : ''
                 }`}
               >

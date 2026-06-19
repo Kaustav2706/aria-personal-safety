@@ -1,25 +1,54 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Mail, Lock, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { authService } from '../services/api';
+import { setToken, setUser } from '../services/auth';
 
 interface LoginProps {
-  onLogin: (email: string, name: string) => void;
+  onLogin: () => void;
   onGoToSignup: () => void;
 }
 
 export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
+
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      onLogin(email || 'alex.vance@lumon.corp', name || 'Alex');
+    try {
+      const res = await authService.login(email, password);
+
+      if (res.data.success) {
+        setToken(res.data.token);
+        setUser(res.data.user);
+        onLogin();
+      } else {
+        setError(res.data.message || 'Login failed. Please try again.');
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      if (err?.response?.status === 401) {
+        setError(msg || 'Invalid email or password.');
+      } else if (err?.response?.status === 400) {
+        setError(msg || 'Missing email or password.');
+      } else if (err?.response?.status === 429) {
+        setError('Too many login attempts. Please wait and try again.');
+      } else {
+        setError(msg || 'Server unavailable. Please check your connection.');
+      }
+    } finally {
       setIsSubmitting(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -44,26 +73,14 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
         {/* Login Form Layout Card */}
         <div className="glass-card rounded-2xl p-8 shadow-2xl space-y-6 relative overflow-hidden">
           <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Optional Nickname for personalization */}
-            <div className="space-y-1.5">
-              <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase" htmlFor="name">
-                Your Nickname
-              </label>
-              <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant opacity-70">
-                  @
-                </span>
-                <input 
-                  className="w-full h-12 bg-transparent text-on-surface pl-10 pr-4 rounded-xl focus:ring-0 focus:outline-none" 
-                  id="name" 
-                  type="text" 
-                  placeholder="Alex (Optional)" 
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+
+            {/* Error Display */}
+            {error && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-error-container/20 border border-error/30 animate-in fade-in duration-200">
+                <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                <p className="text-xs text-error font-medium leading-relaxed">{error}</p>
               </div>
-            </div>
+            )}
 
             {/* Email Field */}
             <div className="space-y-1.5">
@@ -79,6 +96,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
                   placeholder="name@example.com" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -102,6 +120,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
                   placeholder="••••••••" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
                 />
               </div>
             </div>
@@ -110,7 +129,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
             <button 
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-14 bg-secondary-container text-white font-bold text-title-md rounded-xl shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer"
+              className="w-full h-14 bg-secondary-container text-white font-bold text-title-md rounded-xl shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -132,16 +151,16 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
             <div className="flex-grow border-t border-outline-variant opacity-30" />
           </div>
 
-          {/* Social Logins */}
+          {/* Social Logins — Coming Soon */}
           <div className="grid grid-cols-2 gap-3">
             <button 
-              onClick={() => onLogin('apple.user@apple.com', 'Apple User')}
+              onClick={() => setError('Apple Sign-In coming soon.')}
               className="h-12 glass-card rounded-xl flex items-center justify-center gap-2 hover:bg-white/5 active:scale-95 transition-all text-on-surface text-label-md font-bold cursor-pointer"
             >
-              <span className="font-semibold text-lg"></span> Apple
+              <span className="font-semibold text-lg"></span> Apple
             </button>
             <button 
-              onClick={() => onLogin('google.user@google.com', 'Google User')}
+              onClick={() => setError('Google Sign-In coming soon.')}
               className="h-12 glass-card rounded-xl flex items-center justify-center gap-2 hover:bg-white/5 active:scale-95 transition-all text-on-surface text-label-md font-bold cursor-pointer"
             >
               <span className="text-secondary font-black">G</span> Google

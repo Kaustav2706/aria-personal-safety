@@ -1,4 +1,5 @@
 import os
+import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
@@ -49,11 +50,28 @@ async def analyze_incident_audio(
     print(f"[AI ENGINE] GPS Location: Lat {latitude}, Lng {longitude}")
     print(f"[AI ENGINE] Timestamp: {timestamp} | Isolated Area: {is_isolated}")
 
-    # 1. Run Whisper transcription stub
-    whisper_result = whisper.transcribe_audio(file.filename)
+    # Save the uploaded file to a temporary file, and pass its path to whisper.transcribe_audio
+    _, ext = os.path.splitext(file.filename or "audio.webm")
+    temp_file_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+
+        # 1. Run Whisper transcription
+        whisper_result = whisper.transcribe_audio(temp_file_path, original_filename=file.filename)
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                print(f"[AI ENGINE] Error deleting temp file {temp_file_path}: {e}")
+
     transcript = whisper_result["transcript"]
     whisper_flag = whisper_result["distress_flagged"]
     whisper_conf = whisper_result["confidence"]
+    threat_level = whisper_result.get("threatLevel", "SAFE")
 
     # 2. Run Acoustic classifier stub
     tone_conf = tone.classify_voice_tone(file.filename, whisper_flag)
@@ -63,22 +81,27 @@ async def analyze_incident_audio(
     combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
 
     # 3. Context Scorer calculation using new weights:
-    # Voice Distress (40), Night Time (20), Isolation Score (20), Motion Anomaly (20)
+    # Distress Confidence (50%), Threat Level (20%), Isolation (10%), Night Time (5%), Motion (10%), Escalation (5%)
     risk_rating = scorer.calculate_risk_score(
         audio_distress=is_distress,
         is_isolated=is_isolated,
         has_motion_anomaly=motion_anomaly,
-        timestamp_str=timestamp
+        timestamp_str=timestamp,
+        distress_confidence=combined_confidence,
+        threat_level=threat_level,
+        transcript=transcript
     )
 
-    print(f"[AI ENGINE] Result -> distress={is_distress}, conf={combined_confidence}%, risk={risk_rating}%\n")
+    print(f"[AI ENGINE] Result -> distress={is_distress}, conf={combined_confidence}%, risk={risk_rating}%, threatLevel={threat_level}\n")
 
     return {
         "distress": is_distress,
         "confidence": combined_confidence,
         "transcript": transcript,
         "riskScore": risk_rating,
-        "risk_score": risk_rating
+        "risk_score": risk_rating,
+        "threatLevel": threat_level,
+        "threat_level": threat_level
     }
 
 if __name__ == "__main__":

@@ -4,9 +4,12 @@ import { Phone, CheckCircle, ShieldAlert, X } from 'lucide-react';
 interface ActiveSOSProps {
   onCancelSOS: () => void;
   primaryContactName: string;
+  incidentId: string | null;
+  riskScore: number;
+  transcript: string;
 }
 
-export default function ActiveSOSView({ onCancelSOS, primaryContactName }: ActiveSOSProps) {
+export default function ActiveSOSView({ onCancelSOS, primaryContactName, incidentId, riskScore, transcript }: ActiveSOSProps) {
   const [timelineIndex, setTimelineIndex] = useState(1);
   const [waveHeights, setWaveHeights] = useState([12, 32, 48, 24, 40, 16, 36, 44, 20]);
 
@@ -36,6 +39,10 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
     return () => clearInterval(timer);
   }, []);
 
+  const displayId = incidentId ? incidentId.slice(-6).toUpperCase() : 'PENDING';
+  const displayScore = riskScore || 80;
+  const scorePercent = (displayScore / 100) * 565;
+
   return (
     <div className="fixed inset-0 z-50 bg-[#1e0f0e] text-on-background flex flex-col font-sans select-none overflow-y-auto no-scrollbar">
       
@@ -52,7 +59,7 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
           <span className="text-xl font-black text-primary tracking-tight">SOS ACTIVE</span>
         </div>
         <div className="bg-primary/20 px-3 py-1 rounded-full border border-primary/30">
-          <span className="text-xs font-black text-primary tracking-wider font-mono">#8821</span>
+          <span className="text-xs font-black text-primary tracking-wider font-mono">#{displayId}</span>
         </div>
       </header>
 
@@ -81,7 +88,7 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
               r="90" 
               stroke="currentColor" 
               strokeDasharray="565" 
-              strokeDashoffset="45" 
+              strokeDashoffset={565 - scorePercent} 
               strokeLinecap="round" 
               strokeWidth="9" 
             />
@@ -89,7 +96,7 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
 
           {/* Centered Score */}
           <div className="absolute flex flex-col items-center">
-            <span className="text-5xl font-black text-primary">92</span>
+            <span className="text-5xl font-black text-primary">{displayScore}</span>
             <span className="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest mt-1">
               Risk Score
             </span>
@@ -107,6 +114,14 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
           ))}
         </div>
 
+        {/* Transcript Display */}
+        {transcript && (
+          <div className="w-full max-w-sm mb-6 glass-card rounded-xl p-4 border border-primary/15">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Live Transcript</p>
+            <p className="text-xs text-on-surface-variant leading-relaxed italic">"{transcript}"</p>
+          </div>
+        )}
+
         {/* Automated Timeline events status list */}
         <section className="w-full space-y-3.5 max-w-sm">
           
@@ -116,10 +131,12 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
               <div className="flex-1">
                 <div className="flex justify-between items-start">
                   <h4 className="font-bold text-[15px] text-on-surface leading-snug">Incident Created</h4>
-                  <span className="text-xs text-on-surface-variant font-medium font-mono">10:42</span>
+                  <span className="text-xs text-on-surface-variant font-medium font-mono">
+                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
                 <p className="text-xs text-on-surface-variant leading-relaxed mt-0.5">
-                  Emergency protocol initiated automatically. Secure link initialized.
+                  Emergency protocol initiated. ID: {incidentId || 'Pending...'}
                 </p>
               </div>
             </div>
@@ -131,7 +148,9 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
               <div className="flex-1">
                 <div className="flex justify-between items-start">
                   <h4 className="font-bold text-[15px] text-on-surface leading-snug">Emergency Contacts Alerted</h4>
-                  <span className="text-xs text-on-surface-variant font-medium font-mono">10:42</span>
+                  <span className="text-xs text-on-surface-variant font-medium font-mono">
+                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
                 <p className="text-xs text-on-surface-variant leading-relaxed mt-0.5">
                   Realtime location and active voice telemetry feed shared with your primary network.
@@ -146,7 +165,9 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName }: Activ
               <div className="flex-1">
                 <div className="flex justify-between items-start">
                   <h4 className="font-bold text-[15px] text-on-surface leading-snug">Police Dispatch Notified</h4>
-                  <span className="text-xs text-on-surface-variant font-medium font-mono">10:43</span>
+                  <span className="text-xs text-on-surface-variant font-medium font-mono">
+                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
                 <p className="text-xs text-on-surface-variant leading-relaxed mt-0.5">
                   Priority 1 alert routed to municipal dispatcher. Location tracking broadcast active.

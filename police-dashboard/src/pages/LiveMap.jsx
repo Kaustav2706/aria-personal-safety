@@ -35,6 +35,48 @@ export default function LiveMap() {
     };
   }, []);
 
+  // Helper to create the div icon based on status and risk
+  const createMarkerIcon = (status, riskScore) => {
+    const isResolved = status === 'resolved';
+    const isHighRisk = (riskScore || 0) >= 70;
+    const color = isResolved ? '#10b981' : (isHighRisk ? '#ef4444' : '#f59e0b');
+    
+    const pulseHtml = isResolved ? '' : `
+      <div style="
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background-color: ${color};
+        opacity: 0.4;
+        animation: pulse-ring 1.8s infinite ease-in-out;
+      "></div>
+    `;
+
+    const html = `
+      <div style="position: relative; width: 20px; height: 20px;">
+        ${pulseHtml}
+        <div style="
+          position: absolute;
+          top: 5px;
+          left: 5px;
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background-color: ${color};
+          border: 2px solid white;
+        "></div>
+      </div>
+    `;
+
+    return L.divIcon({
+      html: html,
+      className: 'custom-gps-pin',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+  };
+
   // Fetch initial incidents and hook WebSocket listeners
   useEffect(() => {
     fetchActiveIncidents();
@@ -54,10 +96,11 @@ export default function LiveMap() {
     });
 
     socket.on('incidentResolved', ({ incidentId }) => {
-      setIncidents((prev) => prev.filter(i => i.id !== incidentId));
-      removeMarker(incidentId);
+      setIncidents((prev) => prev.map(inc => 
+        inc.id === incidentId ? { ...inc, status: 'resolved' } : inc
+      ));
       if (selectedIncident?.id === incidentId) {
-        setSelectedIncident(null);
+        setSelectedIncident(prev => prev ? { ...prev, status: 'resolved' } : null);
       }
     });
 
@@ -80,58 +123,34 @@ export default function LiveMap() {
     if (!mapInstance.current) return;
 
     incidents.forEach((inc) => {
-      if (inc.status === 'resolved') {
-        removeMarker(inc.id);
-        return;
-      }
-
       const lat = parseFloat(inc.latitude);
       const lng = parseFloat(inc.longitude);
       if (isNaN(lat) || isNaN(lng)) return;
 
       const markerId = inc.id;
       
-      // If marker already exists, update position
+      const popupContent = `
+        <div style="font-family: sans-serif; font-size: 12px; color: #fff; padding: 4px;">
+          <strong style="display: block; font-size: 13px; margin-bottom: 4px;">${inc.userName || 'Registered User'}</strong>
+          <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 10px; margin-bottom: 6px; 
+            background-color: ${inc.status === 'resolved' ? '#10b981' : ((inc.riskScore || 0) >= 70 ? '#ef4444' : '#f59e0b')}; color: white;">
+            ${inc.status.toUpperCase()} (${inc.riskScore || 0}%)
+          </span>
+          <span style="display: block; font-size: 11px; opacity: 0.8;">Phone: ${inc.userPhone || 'N/A'}</span>
+          <span style="display: block; font-size: 11px; opacity: 0.8; margin-top: 4px;">Trigger: ${inc.triggerType}</span>
+        </div>
+      `;
+
+      // If marker already exists, update position, icon, and popup content
       if (markersGroupRef.current[markerId]) {
         markersGroupRef.current[markerId].setLatLng([lat, lng]);
+        markersGroupRef.current[markerId].setIcon(createMarkerIcon(inc.status, inc.riskScore));
+        markersGroupRef.current[markerId].setPopupContent(popupContent);
       } else {
-        // Create custom pulsing icon based on risk
-        const isHighRisk = (inc.riskScore || 0) >= 70;
-        const color = isHighRisk ? '#ef4444' : '#f59e0b';
-        
-        const html = `
-          <div style="position: relative; width: 20px; height: 20px;">
-            <div style="
-              position: absolute;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background-color: ${color};
-              opacity: 0.4;
-              animation: pulse-ring 1.8s infinite ease-in-out;
-            "></div>
-            <div style="
-              position: absolute;
-              top: 5px;
-              left: 5px;
-              width: 10px;
-              height: 10px;
-              border-radius: 50%;
-              background-color: ${color};
-              border: 2px solid white;
-            "></div>
-          </div>
-        `;
-
-        const icon = L.divIcon({
-          html: html,
-          className: 'custom-gps-pin',
-          iconSize: [20, 20],
-          iconAnchor: [10, 10]
-        });
-
+        const icon = createMarkerIcon(inc.status, inc.riskScore);
         const marker = L.marker([lat, lng], { icon }).addTo(mapInstance.current);
         
+        marker.bindPopup(popupContent, { closeButton: false });
         marker.on('click', () => {
           setSelectedIncident(inc);
         });
@@ -140,7 +159,7 @@ export default function LiveMap() {
       }
     });
 
-    // Auto-focus camera on first incident if available
+    // Auto-focus camera on first active incident if available
     const activeIncidents = incidents.filter(i => i.status === 'active');
     if (activeIncidents.length > 0 && mapInstance.current && !selectedIncident) {
       const first = activeIncidents[0];
@@ -152,11 +171,10 @@ export default function LiveMap() {
   const fetchActiveIncidents = async () => {
     try {
       const res = await axios.get(`${API_BASE}/incidents`);
-      // Only keep active ones for live visual rendering
-      const active = (res.data.incidents || []).filter(i => i.status === 'active');
-      setIncidents(active);
+      // Keep all incidents (active and resolved) to show on the live map
+      setIncidents(res.data.incidents || []);
     } catch (err) {
-      console.error('Error fetching dashboard active incidents:', err);
+      console.error('Error fetching dashboard incidents:', err);
     }
   };
 
@@ -171,7 +189,23 @@ export default function LiveMap() {
     if (markersGroupRef.current[id]) {
       markersGroupRef.current[id].setLatLng([lat, lng]);
       
-      // Update popups or zoom to track if selected
+      const inc = incidents.find(i => i.id === id);
+      const status = inc ? inc.status : 'active';
+      markersGroupRef.current[id].setIcon(createMarkerIcon(status, score));
+      
+      const popupContent = `
+        <div style="font-family: sans-serif; font-size: 12px; color: #fff; padding: 4px;">
+          <strong style="display: block; font-size: 13px; margin-bottom: 4px;">${(inc && inc.userName) || 'Registered User'}</strong>
+          <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 10px; margin-bottom: 6px; 
+            background-color: ${status === 'resolved' ? '#10b981' : ((score || 0) >= 70 ? '#ef4444' : '#f59e0b')}; color: white;">
+            ${status.toUpperCase()} (${score || 0}%)
+          </span>
+          <span style="display: block; font-size: 11px; opacity: 0.8;">Phone: ${(inc && inc.userPhone) || 'N/A'}</span>
+          <span style="display: block; font-size: 11px; opacity: 0.8; margin-top: 4px;">Trigger: ${(inc && inc.triggerType) || 'unknown'}</span>
+        </div>
+      `;
+      markersGroupRef.current[id].setPopupContent(popupContent);
+
       if (selectedIncident && selectedIncident.id === id) {
         setSelectedIncident(prev => ({ ...prev, latitude: lat, longitude: lng, riskScore: score || prev.riskScore }));
         if (mapInstance.current) {
@@ -185,9 +219,11 @@ export default function LiveMap() {
     if (!selectedIncident) return;
     try {
       await axios.put(`${API_BASE}/incidents/${selectedIncident.id}/resolve`);
-      removeMarker(selectedIncident.id);
-      setIncidents(prev => prev.filter(i => i.id !== selectedIncident.id));
-      setSelectedIncident(null);
+      // Update state status to resolved instead of deleting
+      setIncidents(prev => prev.map(i => 
+        i.id === selectedIncident.id ? { ...i, status: 'resolved' } : i
+      ));
+      setSelectedIncident(prev => prev ? { ...prev, status: 'resolved' } : null);
     } catch (err) {
       console.error('Error resolving incident:', err);
     }
