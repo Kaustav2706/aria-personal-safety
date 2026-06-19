@@ -332,17 +332,6 @@ export default function App() {
         {hasBottomNav && (
           <header className="fixed top-0 w-full z-50 flex justify-between items-center max-w-md mx-auto px-6 h-16 bg-[#1e0f0e]/80 backdrop-blur-xl border-b border-white/10 shadow-sm">
             <div className="flex items-center gap-3">
-              <div 
-                onClick={() => setCurrentScreen('PROFILE')}
-                className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20 cursor-pointer hover:border-primary shrink-0 transition-colors"
-                title="View Profile details"
-              >
-                <img 
-                  alt="Profile Avatar" 
-                  src={profile.avatar} 
-                  className="w-full h-full object-cover" 
-                />
-              </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider font-extrabold text-on-surface-variant leading-none">
                   Hello, {profile.name.split(' ')[0]}

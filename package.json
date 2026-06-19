@@ -4,6 +4,10 @@
   "scripts": {
     "start:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
+    "install:all": "npm run install:backend && npm run install:dashboard && npm run install:mobile",
+    "install:backend": "cd backend && npm install",
+    "install:dashboard": "cd police-dashboard && npm install",
+    "install:mobile": "cd mobile && npm install",
     "start:backend": "cd backend && npm run dev",
     "start:dashboard": "cd police-dashboard && npm run dev",
     "start:mobile": "cd mobile && npm start"
