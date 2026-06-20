@@ -216,19 +216,24 @@ export default function App() {
   };
 
   // ── SOS trigger ─────────────────────────────────────────────────────────
-  const handleTriggerSOS = async (triggerType: string = 'manual', extraInfo?: string) => {
+  const handleTriggerSOS = async (triggerType: string = 'manual', extraInfo?: string, coords?: { lat: number; lng: number } | null) => {
     try {
       // Get current GPS
       let latitude = 0;
       let longitude = 0;
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-        );
-        latitude = pos.coords.latitude;
-        longitude = pos.coords.longitude;
-      } catch {
-        console.warn('[SOS] GPS unavailable, using defaults.');
+      if (coords) {
+        latitude = coords.lat;
+        longitude = coords.lng;
+      } else {
+        try {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+          );
+          latitude = pos.coords.latitude;
+          longitude = pos.coords.longitude;
+        } catch {
+          console.warn('[SOS] GPS unavailable, using defaults.');
+        }
       }
 
       const formData = new FormData();

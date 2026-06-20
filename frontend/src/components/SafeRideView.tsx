@@ -37,7 +37,7 @@ function RecenterMap({ coords }: { coords: { lat: number; lng: number } }) {
 }
 
 interface SafeRideProps {
-  onTriggerSOS: (triggerType?: string, extraInfo?: string) => void;
+  onTriggerSOS: (triggerType?: string, extraInfo?: string, coords?: { lat: number; lng: number } | null) => void;
 }
 
 export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
@@ -256,7 +256,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
   const handleReportToPolice = () => {
     setShowSuspiciousModal(false);
     const info = `Suspicious Activity reported during Safe Ride. Driver: ${driverName}, Car: ${carModel} (${carNumber}), Route: From ${pickupLocation} to ${dropLocation}`;
-    onTriggerSOS('suspicious', info);
+    onTriggerSOS('suspicious', info, gpsCoords);
   };
 
   // Reset journey state back to setup
@@ -651,7 +651,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
             {/* Central Pulse Emergency Trigger Button */}
             <div className="flex flex-col items-center gap-2 pt-2">
               <button 
-                onClick={onTriggerSOS}
+                onClick={() => onTriggerSOS('manual', undefined, gpsCoords)}
                 className="w-20 h-20 rounded-full bg-primary-container text-white flex items-center justify-center sos-glow active:scale-90 transition-transform cursor-pointer animate-pulse"
               >
                 <AlertCircle className="w-10 h-10 text-white" />
@@ -734,7 +734,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
               <button
                 onClick={() => {
                   setShowSuspiciousModal(false);
-                  onTriggerSOS(); // Deploys standard contacts alert sequence
+                  onTriggerSOS('manual', undefined, gpsCoords); // Deploys standard contacts alert sequence
                 }}
                 className="w-full py-3.5 px-4 bg-surface-container hover:bg-surface-container-highest text-white border border-white/10 rounded-xl font-bold text-xs uppercase tracking-wider active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
               >

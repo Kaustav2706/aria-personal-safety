@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import axios from 'axios';
-import { AlertOctagon, CheckCircle2, ShieldAlert, ArrowRight, User, Phone, MapPin, Activity } from 'lucide-react';
+import { AlertOctagon, CheckCircle2, ShieldAlert, ArrowRight, ArrowUpRight, Phone, MapPin, Activity, Users, Clock, TrendingUp, Radio, Zap, Eye } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000/api';
 const SOCKET_URL = 'http://localhost:5000';
@@ -10,13 +10,12 @@ const SOCKET_URL = 'http://localhost:5000';
 export default function Dashboard() {
   const navigate = useNavigate();
   const [incidents, setIncidents] = useState([]);
-  const [stats, setStats] = useState({ active: 0, resolved: 0, avgRisk: 0 });
+  const [stats, setStats] = useState({ active: 0, resolved: 0, avgRisk: 0, total: 0 });
   const [alertBanner, setAlertBanner] = useState(null);
 
   useEffect(() => {
     fetchIncidents();
 
-    // Setup socket connection
     const socket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 15,
@@ -26,37 +25,32 @@ export default function Dashboard() {
     socket.on('incidentCreated', (newIncident) => {
       setIncidents(prev => [newIncident, ...prev]);
       setAlertBanner(newIncident);
-      // Automatically clear banner after 10 seconds
       setTimeout(() => setAlertBanner(null), 10000);
     });
 
     socket.on('incidentResolved', ({ incidentId }) => {
-      setIncidents(prev => prev.map(inc => 
+      setIncidents(prev => prev.map(inc =>
         inc.id === incidentId ? { ...inc, status: 'resolved' } : inc
       ));
     });
 
     socket.on('globalLocationUpdate', (data) => {
-      setIncidents(prev => prev.map(inc => 
-        inc.id === data.incidentId 
-          ? { ...inc, latitude: data.latitude, longitude: data.longitude, riskScore: data.riskScore || inc.riskScore } 
+      setIncidents(prev => prev.map(inc =>
+        inc.id === data.incidentId
+          ? { ...inc, latitude: data.latitude, longitude: data.longitude, riskScore: data.riskScore || inc.riskScore }
           : inc
       ));
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, []);
 
   useEffect(() => {
-    // Recalculate stats when incidents array changes
     const active = incidents.filter(i => i.status === 'active').length;
     const resolved = incidents.filter(i => i.status === 'resolved').length;
     const totalRisk = incidents.reduce((sum, i) => sum + (i.riskScore || 0), 0);
     const avgRisk = incidents.length ? Math.round(totalRisk / incidents.length) : 0;
-
-    setStats({ active, resolved, avgRisk });
+    setStats({ active, resolved, avgRisk, total: incidents.length });
   }, [incidents]);
 
   const fetchIncidents = async () => {
@@ -78,185 +72,211 @@ export default function Dashboard() {
     }
   };
 
+  const formatTimeAgo = (dateStr) => {
+    if (!dateStr) return '';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      
-      {/* Real-time Toast Banner for incoming threat */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+
+      {/* ── Critical SOS Alert Banner ─────────────────────────────────── */}
       {alertBanner && (
-        <div 
-          onClick={() => navigate(`/reports/${alertBanner.id}`)}
-          style={{
-            background: 'linear-gradient(90deg, #be123c 0%, #e11d48 100%)',
-            border: '2px solid #f43f5e',
-            borderRadius: '12px',
-            padding: '16px 24px',
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'between',
-            boxShadow: '0 0 30px rgba(225, 29, 72, 0.4)',
-            cursor: 'pointer',
-            animation: 'glow-red 2.5s infinite',
-            justifyContent: 'space-between'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '8px' }}>
-              <AlertOctagon size={28} />
+        <div className="alert-banner" onClick={() => navigate(`/map?incidentId=${alertBanner.id}`)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', zIndex: 1 }}>
+            <div style={{ padding: '10px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '10px', backdropFilter: 'blur(4px)' }}>
+              <AlertOctagon size={26} />
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <strong style={{ fontSize: '1.1rem', fontFamily: 'var(--font-display)' }}>CRITICAL SOS TRIGGERED</strong>
-                <span className="pulse-badge" style={{ backgroundColor: '#fff', color: '#be123c', border: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em' }}>CRITICAL SOS TRIGGERED</strong>
+                <span className="badge" style={{ background: 'rgba(255,255,255,0.9)', color: '#be123c', border: 'none', fontWeight: 800 }}>
                   RISK: {alertBanner.riskScore}%
                 </span>
               </div>
-              <p style={{ fontSize: '0.9rem', opacity: 0.95, marginTop: '2px' }}>
-                Victim: {alertBanner.userName || 'Registered User'} | Phone: {alertBanner.userPhone} | Trigger: {alertBanner.triggerType.toUpperCase()}
+              <p style={{ fontSize: '0.82rem', opacity: 0.92, marginTop: '3px', fontWeight: 500 }}>
+                Victim: {alertBanner.userName || 'Registered User'} • Phone: {alertBanner.userPhone} • Trigger: {alertBanner.triggerType?.toUpperCase()}
               </p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '0.9rem' }}>
-            RESPOND DISPATCH <ArrowRight size={16} />
+          <div className="btn" style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', zIndex: 1, backdropFilter: 'blur(4px)', fontSize: '0.78rem' }}>
+            RESPOND <ArrowRight size={14} />
           </div>
         </div>
       )}
 
-      {/* Grid Stats Panel */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-        
+      {/* ── Page Header ───────────────────────────────────────────────── */}
+      <div>
+        <h2 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.03em' }}>
+          Command Center
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '4px', fontWeight: 500 }}>
+          Real-time safety threat intelligence and incident dispatch overview
+        </p>
+      </div>
+
+      {/* ── Stats Grid ────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '18px' }}>
+
         {/* Active Threats */}
-        <div className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', gap: '20px' }}>
-          <div style={{ flex: 1 }}>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Active Threats</p>
-            <h3 style={{ fontSize: '2.5rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: '#ef4444', marginTop: '4px' }}>{stats.active}</h3>
+        <div className="glass-card glass-card-danger stat-card" style={{ padding: '22px' }}>
+          <div>
+            <p className="stat-label">Active Threats</p>
+            <h3 className="stat-value" style={{ color: stats.active > 0 ? 'var(--color-danger)' : 'var(--text-muted)' }}>{stats.active}</h3>
+            {stats.active > 0 && (
+              <p style={{ fontSize: '0.7rem', color: 'var(--color-danger)', fontWeight: 600, marginTop: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Radio size={10} style={{ animation: 'pulse-ring 1.5s infinite' }} /> Requires attention
+              </p>
+            )}
           </div>
-          <div style={{ padding: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', color: '#ef4444' }}>
-            <AlertOctagon size={32} />
-          </div>
-        </div>
-
-        {/* Resolved Actions */}
-        <div className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', gap: '20px' }}>
-          <div style={{ flex: 1 }}>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Resolved Incidents</p>
-            <h3 style={{ fontSize: '2.5rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: '#10b981', marginTop: '4px' }}>{stats.resolved}</h3>
-          </div>
-          <div style={{ padding: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '12px', color: '#10b981' }}>
-            <CheckCircle2 size={32} />
+          <div className="stat-icon" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: 'var(--color-danger)' }}>
+            <AlertOctagon size={24} />
           </div>
         </div>
 
-        {/* Mean Risk Score */}
-        <div className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', gap: '20px' }}>
-          <div style={{ flex: 1 }}>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Mean Threat Risk</p>
-            <h3 style={{ fontSize: '2.5rem', fontWeight: 800, fontFamily: 'var(--font-display)', color: '#f59e0b', marginTop: '4px' }}>{stats.avgRisk}%</h3>
+        {/* Resolved */}
+        <div className="glass-card stat-card" style={{ padding: '22px' }}>
+          <div>
+            <p className="stat-label">Resolved</p>
+            <h3 className="stat-value" style={{ color: 'var(--color-success)' }}>{stats.resolved}</h3>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '6px' }}>Successfully closed</p>
           </div>
-          <div style={{ padding: '12px', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '12px', color: '#f59e0b' }}>
-            <Activity size={32} />
+          <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', color: 'var(--color-success)' }}>
+            <CheckCircle2 size={24} />
+          </div>
+        </div>
+
+        {/* Mean Risk */}
+        <div className="glass-card stat-card" style={{ padding: '22px' }}>
+          <div>
+            <p className="stat-label">Mean Risk Score</p>
+            <h3 className="stat-value" style={{ color: stats.avgRisk >= 60 ? 'var(--color-danger)' : stats.avgRisk >= 30 ? 'var(--color-warning)' : 'var(--color-success)' }}>{stats.avgRisk}%</h3>
+            <div className="risk-gauge" style={{ width: '80px', marginTop: '8px' }}>
+              <div className="risk-gauge-fill" style={{
+                width: `${stats.avgRisk}%`,
+                background: stats.avgRisk >= 60
+                  ? 'linear-gradient(90deg, #ef4444, #f87171)'
+                  : stats.avgRisk >= 30
+                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                    : 'linear-gradient(90deg, #10b981, #34d399)',
+              }} />
+            </div>
+          </div>
+          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', color: 'var(--color-warning)' }}>
+            <Activity size={24} />
+          </div>
+        </div>
+
+        {/* Total Incidents */}
+        <div className="glass-card stat-card" style={{ padding: '22px' }}>
+          <div>
+            <p className="stat-label">Total Incidents</p>
+            <h3 className="stat-value" style={{ color: 'var(--text-accent)' }}>{stats.total}</h3>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '6px' }}>All time records</p>
+          </div>
+          <div className="stat-icon" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--color-info)' }}>
+            <TrendingUp size={24} />
           </div>
         </div>
 
       </div>
 
-      {/* Main View Grid: Active List vs Status */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
-        
-        {/* Active Threats Log */}
+      {/* ── Main Content Grid ─────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px' }}>
+
+        {/* ── Activity Feed ───────────────────────────────────────────── */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontSize: '1.25rem', color: '#fff' }}>Recent Activity Dispatch Feed</h3>
-            <button 
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>Recent Activity Feed</h3>
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 500 }}>Latest {Math.min(incidents.length, 5)} dispatch events</p>
+            </div>
+            <button
+              className="btn btn-ghost"
               onClick={() => navigate('/logs')}
-              style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ fontSize: '0.75rem', padding: '7px 14px' }}
             >
-              All Logs <ArrowRight size={14} />
+              All Logs <ArrowUpRight size={13} />
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {incidents.slice(0, 5).map((inc) => (
-              <div 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {incidents.slice(0, 5).map((inc, idx) => (
+              <div
                 key={inc.id}
-                onClick={() => navigate(`/reports/${inc.id}`)}
-                style={{
-                  padding: '16px',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  border: `1px solid ${inc.status === 'active' ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-color)'}`,
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  transition: '0.2s'
+                className={`incident-row ${inc.status === 'active' ? 'incident-row-active' : 'incident-row-resolved'}`}
+                onClick={() => {
+                  if (inc.status === 'active') {
+                    navigate(`/map?incidentId=${inc.id}`);
+                  } else {
+                    navigate(`/reports/${inc.id}`);
+                  }
                 }}
+                style={{ animationDelay: `${idx * 0.06}s` }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span 
-                      style={{ 
-                        fontSize: '0.75rem', 
-                        fontWeight: 'bold', 
-                        padding: '2px 8px', 
-                        borderRadius: '4px',
-                        backgroundColor: inc.status === 'active' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                        color: inc.status === 'active' ? '#ef4444' : '#10b981',
-                        border: `1px solid ${inc.status === 'active' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
-                      }}
-                    >
-                      {inc.status.toUpperCase()}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <span className={`badge ${inc.status === 'active' ? 'badge-danger' : 'badge-success'}`}>
+                      {inc.status === 'active' ? '● ACTIVE' : '✓ RESOLVED'}
                     </span>
-                    <strong style={{ color: '#fff', fontSize: '0.95rem' }}>{inc.userName || 'Registered User'}</strong>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{inc.id}</span>
+                    <strong style={{ color: '#fff', fontSize: '0.88rem', fontWeight: 700 }}>{inc.userName || 'Registered User'}</strong>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
+                      {inc.id?.slice(-8)}
+                    </span>
                   </div>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                    {inc.userPhone && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Phone size={12} /> {inc.userPhone}
+                      </span>
+                    )}
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Phone size={13} /> {inc.userPhone}
+                      <MapPin size={12} /> Latitude: {inc.latitude?.toFixed(4)}°, Longitude: {inc.longitude?.toFixed(4)}°
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <MapPin size={13} /> {inc.latitude.toFixed(4)}, {inc.longitude.toFixed(4)}
+                      <Clock size={12} /> {formatTimeAgo(inc.createdAt)}
                     </span>
                   </div>
 
                   {inc.audioTranscript && (
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '2px' }}>
-                      &ldquo;{inc.audioTranscript}&rdquo;
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      "{inc.audioTranscript}"
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0 }}>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Risk Level</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: inc.riskScore >= 75 ? '#ef4444' : '#f59e0b' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Risk</div>
+                    <div style={{
+                      fontSize: '1.3rem',
+                      fontWeight: 800,
+                      color: inc.riskScore >= 75 ? 'var(--color-danger)' : inc.riskScore >= 40 ? 'var(--color-warning)' : 'var(--color-success)',
+                      fontFamily: 'var(--font-sans)',
+                      lineHeight: 1,
+                    }}>
                       {inc.riskScore}%
                     </div>
                   </div>
 
                   {inc.status === 'active' ? (
-                    <button 
+                    <button
+                      className="btn btn-success"
                       onClick={(e) => handleResolve(inc.id, e)}
-                      style={{
-                        padding: '8px 12px',
-                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                        border: '1px solid rgba(16, 185, 129, 0.4)',
-                        borderRadius: '6px',
-                        color: '#10b981',
-                        cursor: 'pointer',
-                        fontSize: '0.8rem',
-                        fontWeight: 'bold',
-                        transition: '0.2s'
-                      }}
-                      onMouseOver={(e) => e.target.style.backgroundColor = '#10b981' + '33'}
-                      onMouseOut={(e) => e.target.style.backgroundColor = 'rgba(16, 185, 129, 0.2)'}
+                      style={{ padding: '7px 12px', fontSize: '0.72rem' }}
                     >
                       Resolve
                     </button>
                   ) : (
-                    <div style={{ width: '70px', textAlign: 'center', color: '#10b981' }}>
-                      <CheckCircle2 size={20} style={{ margin: '0 auto' }} />
+                    <div style={{ width: '28px', display: 'flex', justifyContent: 'center' }}>
+                      <CheckCircle2 size={18} style={{ color: 'var(--color-success)', opacity: 0.6 }} />
                     </div>
                   )}
                 </div>
@@ -264,62 +284,119 @@ export default function Dashboard() {
             ))}
 
             {incidents.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                No recorded safety incidents found.
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)' }}>
+                <Eye size={36} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+                <p style={{ fontSize: '0.85rem', fontWeight: 500 }}>No recorded safety incidents found</p>
+                <p style={{ fontSize: '0.72rem', marginTop: '4px' }}>Incidents will appear here in real-time when triggered</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* System Diagnostics status panel */}
+        {/* ── Right Sidebar ───────────────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
+
+          {/* System Health Panel */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 style={{ fontSize: '1.1rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShieldAlert size={18} className="text-rose-500" />
-              ARIA Status Engine
-            </h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>AI Engine</span>
-                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>ONLINE (8000)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-accent)' }}>
+                <Zap size={14} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Websocket Bridge</span>
-                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>ACTIVE (5000)</span>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff' }}>ARIA Infrastructure</h3>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {[
+                { name: 'AI Engine', status: 'ONLINE', port: '8000', color: 'var(--color-success)' },
+                { name: 'WebSocket Bridge', status: 'ACTIVE', port: '5000', color: 'var(--color-success)' },
+                { name: 'Twilio Service', status: 'CONNECTED', port: null, color: 'var(--color-cyan)' },
+                { name: 'Firebase SDK', status: 'CONNECTED', port: null, color: 'var(--color-cyan)' },
+              ].map((service, idx) => (
+                <div key={service.name} style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '10px 0',
+                  borderBottom: idx < 3 ? '1px solid rgba(56, 78, 122, 0.2)' : 'none',
+                }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>{service.name}</span>
+                  <span style={{
+                    color: service.color,
+                    fontWeight: 700,
+                    fontSize: '0.7rem',
+                    fontFamily: 'var(--font-mono)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    letterSpacing: '0.03em',
+                  }}>
+                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: service.color, display: 'inline-block' }} />
+                    {service.status}{service.port ? ` (${service.port})` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Action — Tactical Map */}
+          <div
+            className="glass-card"
+            style={{
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, var(--bg-card) 100%)',
+              borderColor: 'rgba(59, 130, 246, 0.2)',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+            onClick={() => navigate('/map')}
+          >
+            {/* Subtle scan line effect */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '40%',
+              background: 'linear-gradient(180deg, rgba(59, 130, 246, 0.04) 0%, transparent 100%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <MapPin size={15} style={{ color: 'var(--color-info)' }} />
+                <h4 style={{ color: '#fff', fontSize: '0.88rem', fontWeight: 700 }}>Tactical Dispatch Map</h4>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Twilio Service</span>
-                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>MOCK_ACTIVE</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Firebase SDK</span>
-                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>MOCK_ACTIVE</span>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', lineHeight: 1.5, fontWeight: 500 }}>
+                Live GPS telemetry plotting with incident tracking and real-time coordinate streaming
+              </p>
+              <div style={{ marginTop: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--color-info)', fontWeight: 700, letterSpacing: '0.02em' }}>
+                Launch GIS Panel <ArrowUpRight size={13} />
               </div>
             </div>
           </div>
 
-          <div 
-            className="glass-card" 
-            style={{ 
-              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.02) 100%)', 
-              borderColor: 'rgba(59, 130, 246, 0.3)',
-              cursor: 'pointer'
+          {/* Quick Action — Incident Logs */}
+          <div
+            className="glass-card"
+            style={{
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, var(--bg-card) 100%)',
+              borderColor: 'rgba(99, 102, 241, 0.15)',
             }}
-            onClick={() => navigate('/map')}
+            onClick={() => navigate('/logs')}
           >
-            <h4 style={{ color: '#fff', fontSize: '0.95rem', fontWeight: 'bold' }}>Tactical Dispatch Map</h4>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '4px' }}>
-              Open tactical GIS display with live telemetry plotting for responders.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <ShieldAlert size={15} style={{ color: 'var(--color-accent)' }} />
+              <h4 style={{ color: '#fff', fontSize: '0.88rem', fontWeight: 700 }}>Audit Log Archive</h4>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', lineHeight: 1.5, fontWeight: 500 }}>
+              Search and filter historical incident records with full diagnostic telemetry
             </p>
-            <div style={{ marginTop: '16px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#3b82f6', fontWeight: 'bold' }}>
-              Launch GIS Panel <ArrowRight size={14} />
+            <div style={{ marginTop: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 700, letterSpacing: '0.02em' }}>
+              Browse Records <ArrowUpRight size={13} />
             </div>
           </div>
 
         </div>
-
       </div>
 
     </div>

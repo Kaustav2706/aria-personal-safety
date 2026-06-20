@@ -84,7 +84,6 @@ export const monitoringService = {
   /** POST /api/monitoring/chunk — multipart/form-data */
   uploadChunk: (formData: FormData) =>
     api.post('/api/monitoring/chunk', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 15000,
     }),
 
@@ -103,9 +102,7 @@ export const monitoringService = {
 export const incidentService = {
   /** POST /api/incidents/create — supports multipart/form-data for audio upload */
   create: (formData: FormData) =>
-    api.post('/api/incidents/create', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+    api.post('/api/incidents/create', formData),
 
   /** GET /api/incidents */
   getAll: () => api.get('/api/incidents'),
