@@ -63,7 +63,7 @@ export default function DashboardView({
     return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
   }, []);
 
-  // Custom long press implementation for SOS activation (2 seconds)
+  // Custom long press implementation for SOS activation (3 seconds)
   const startPress = () => {
     isPressing.current = true;
     setHoldProgress(0);
@@ -72,7 +72,7 @@ export default function DashboardView({
     const updateFrame = () => {
       if (!isPressing.current) return;
       const elapsed = Date.now() - startTime;
-      const pct = Math.min(100, (elapsed / 2000) * 100);
+      const pct = Math.min(100, (elapsed / 3000) * 100);
       setHoldProgress(pct);
 
       if (pct < 100) {

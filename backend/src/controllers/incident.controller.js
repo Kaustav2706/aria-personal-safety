@@ -40,7 +40,10 @@ export const createIncident = asyncHandler(async (req, res) => {
   } else {
     // Basic context calculation if no audio upload was captured
     let calculatedScore = 50;
-    if (triggerType === 'manual') calculatedScore = 80;
+    if (triggerType === 'manual') {
+      // Introduce minor variance (78-82) to avoid a perfectly constant base score
+      calculatedScore = 78 + Math.floor(Math.random() * 5);
+    }
     if (triggerType === 'audio') calculatedScore = 70;
     if (triggerType === 'motion') calculatedScore = 65;
 

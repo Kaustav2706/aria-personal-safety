@@ -53,6 +53,8 @@ async def analyze_incident_audio(
     # Save the uploaded file to a temporary file, and pass its path to whisper.transcribe_audio
     _, ext = os.path.splitext(file.filename or "audio.webm")
     temp_file_path = None
+    whisper_result = None
+    tone_conf = 0.0
     try:
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as temp_file:
             content = await file.read()
@@ -61,6 +63,9 @@ async def analyze_incident_audio(
 
         # 1. Run Whisper transcription
         whisper_result = whisper.transcribe_audio(temp_file_path, original_filename=file.filename)
+
+        # 2. Run Acoustic classifier with actual audio file path to detect shouting/RMS volume
+        tone_conf = tone.classify_voice_tone(temp_file_path, original_filename=file.filename, distress_flagged=whisper_result["distress_flagged"])
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
@@ -68,13 +73,18 @@ async def analyze_incident_audio(
             except Exception as e:
                 print(f"[AI ENGINE] Error deleting temp file {temp_file_path}: {e}")
 
-    transcript = whisper_result["transcript"]
-    whisper_flag = whisper_result["distress_flagged"]
-    whisper_conf = whisper_result["confidence"]
-    threat_level = whisper_result.get("threatLevel", "SAFE")
+    transcript = whisper_result["transcript"] if whisper_result else ""
+    whisper_flag = whisper_result["distress_flagged"] if whisper_result else False
+    whisper_conf = whisper_result["confidence"] if whisper_result else 0.0
+    threat_level = whisper_result.get("threatLevel", "SAFE") if whisper_result else "SAFE"
 
-    # 2. Run Acoustic classifier stub
-    tone_conf = tone.classify_voice_tone(file.filename, whisper_flag)
+    # Elevate threat_level if acoustic classifier detects shouting/screaming
+    if tone_conf >= 85.0:
+        threat_level = "CRITICAL"
+        print(f"[AI ENGINE] Threat level elevated to CRITICAL based on shouting volume (tone_conf={tone_conf}%)")
+    elif tone_conf >= 75.0 and threat_level != "CRITICAL":
+        threat_level = "WARNING"
+        print(f"[AI ENGINE] Threat level elevated to WARNING based on shouting volume (tone_conf={tone_conf}%)")
 
     # Combined distress status check
     is_distress = whisper_flag or tone_conf >= 75.0
