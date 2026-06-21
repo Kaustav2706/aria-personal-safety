@@ -121,6 +121,30 @@ export class Incident {
     }
   }
 
+  static async findByUserId(userId) {
+    if (dbMode === 'memory') {
+      return memoryIncidents
+        .filter(i => i.userId === userId)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+
+    try {
+      const query = `
+        SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
+               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", 
+               created_at as "createdAt" 
+        FROM incidents 
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+      `;
+      const res = await pool.query(query, [userId]);
+      return res.rows;
+    } catch (err) {
+      console.error('[INCIDENT MODEL] findByUserId error:', err.message);
+      throw err;
+    }
+  }
+
   static async update(id, updates) {
     if (dbMode === 'memory') {
       const idx = memoryIncidents.findIndex(i => i.id === id);

@@ -10,18 +10,18 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post('/create', authenticateToken, upload.single('file'), createIncident);
 
 // GET /api/incidents
-router.get('/', getIncidents);
+router.get('/', authenticateToken, getIncidents);
 
 // GET /api/incidents/:id
-router.get('/:id', getIncidentById);
+router.get('/:id', authenticateToken, getIncidentById);
 
 // PUT /api/incidents/:id/resolve
-router.put('/:id/resolve', resolveIncident);
+router.put('/:id/resolve', authenticateToken, resolveIncident);
 
 // DELETE /api/incidents/:id
 router.delete('/:id', deleteIncident);
 
 // POST /api/report/generate
-router.post('/report/generate', generateReport);
+router.post('/report/generate', authenticateToken, generateReport);
 
 export default router;

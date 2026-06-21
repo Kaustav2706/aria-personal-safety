@@ -15,6 +15,7 @@ import userRoutes from './routes/user.routes.js';
 import incidentRoutes from './routes/incident.routes.js';
 import alertRoutes from './routes/alert.routes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
+import policeRoutes from './routes/police.routes.js';
 
 // Sockets and Middleware imports
 import { setupLiveTracking } from './sockets/liveTracking.js';
@@ -53,6 +54,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/incidents', incidentRoutes);
 app.use('/api', alertRoutes);
 app.use('/api/monitoring', monitoringRoutes);
+app.use('/api/police', policeRoutes);
 
 // Base route for health checks
 app.get('/health', (req, res) => {

@@ -41,6 +41,8 @@ ios/
 # Firebase
 # ==========================================
 firebase-service-account.json
+backend/firebase-service-account.json
+**/firebase-service-account.json
 serviceAccountKey.json
 # Allow example files
 !firebase-service-account.example.json

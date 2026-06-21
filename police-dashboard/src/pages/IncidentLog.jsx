@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Search, FileText, CheckCircle2, AlertOctagon, Filter, RefreshCw, ExternalLink } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
+const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
 
 export default function IncidentLog() {
   const navigate = useNavigate();
@@ -20,7 +22,7 @@ export default function IncidentLog() {
   const fetchIncidents = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/incidents`);
+      const res = await axios.get(`${API_BASE}/police/incidents`, { headers: policeHeaders });
       setIncidents(res.data.incidents || []);
     } catch (err) {
       console.error('Error fetching incident logs:', err);
@@ -32,7 +34,7 @@ export default function IncidentLog() {
   const handleResolve = async (id, e) => {
     e.stopPropagation();
     try {
-      await axios.put(`${API_BASE}/incidents/${id}/resolve`);
+      await axios.put(`${API_BASE}/police/incidents/${id}/resolve`, {}, { headers: policeHeaders });
       fetchIncidents();
     } catch (err) {
       console.error('Error resolving incident:', err);
