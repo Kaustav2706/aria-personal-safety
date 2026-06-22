@@ -118,7 +118,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
                 <input
                   className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
                   type="text"
-                  placeholder="John Doe"
+                  placeholder="Priya Patel"
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -136,7 +136,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
                 <input
                   className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
                   type="tel"
-                  placeholder="+1 (555) 123-4567"
+                  placeholder="+91 98765 43210"
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -154,7 +154,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
                 <input
                   className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
                   type="email"
-                  placeholder="name@example.com"
+                  placeholder="demo@gmail.com"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

@@ -101,7 +101,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
                   className="w-full h-12 bg-transparent text-on-surface pl-12 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[14px]"
                   id="email"
                   type="email"
-                  placeholder="name@example.com"
+                  placeholder="demo@gmail.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
@@ -115,9 +115,6 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
                 <label className="text-[10px] text-on-surface-variant/60 font-bold tracking-[0.12em] uppercase" htmlFor="password">
                   Password
                 </label>
-                <a className="text-[11px] text-secondary/70 hover:text-secondary transition-colors tracking-tight font-medium" href="#forgot">
-                  Forgot Password?
-                </a>
               </div>
               <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
                 <Lock className="w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
