@@ -314,22 +314,22 @@ export default function MonitoringView({
     <div className="pt-20 pb-32 px-6 font-sans select-none">
       
       {/* Top Title Section */}
-      <header className="mb-6 space-y-1">
+      <header className="mb-6 space-y-1.5 animate-slide-up">
         <div className="flex items-center gap-2">
           {/* Pulsing indicator dot */}
-          <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-red-500 animate-pulse' : 'bg-[#72d4ef] animate-pulse'}`} />
-          <span className={`font-bold text-xs uppercase tracking-widest ${isActive ? 'text-red-400' : 'text-[#72d4ef]'}`}>
+          <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-red-500 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]' : 'bg-tertiary animate-pulse shadow-[0_0_6px_rgba(114,212,239,0.4)]'}`} />
+          <span className={`font-bold text-[11px] uppercase tracking-[0.12em] ${isActive ? 'text-red-400' : 'text-tertiary'}`}>
             {isActive ? 'Recording Live' : 'Standby'}
           </span>
         </div>
-        <h2 className="text-3xl font-black text-on-surface">System Monitoring</h2>
+        <h2 className="text-[28px] font-black text-on-surface tracking-tight">System Monitoring</h2>
       </header>
 
       {/* Error Banner */}
       {error && (
-        <div className="flex items-start gap-2 p-3 rounded-xl bg-error-container/20 border border-error/30 mb-4 animate-in fade-in duration-200">
+        <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-error-container/15 border border-error/20 mb-4 animate-slide-up">
           <AlertTriangle className="w-4 h-4 text-error shrink-0 mt-0.5" />
-          <p className="text-xs text-error font-medium leading-relaxed">{error}</p>
+          <p className="text-xs text-error/90 font-medium leading-relaxed">{error}</p>
         </div>
       )}
 
@@ -339,14 +339,15 @@ export default function MonitoringView({
           <button
             onClick={handleStart}
             disabled={isStarting}
-            className="w-full h-14 bg-secondary-container text-white font-bold text-title-md rounded-2xl shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50"
+            className="w-full h-14 bg-gradient-to-r from-secondary-container to-[#2578d1] text-white font-bold text-[15px] rounded-2xl shadow-[0_4px_20px_rgba(51,148,241,0.25)] hover:shadow-[0_6px_28px_rgba(51,148,241,0.35)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 relative overflow-hidden"
           >
+            <div className="absolute inset-0 shimmer" />
             {isStarting ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                <Mic className="w-5 h-5" />
-                Start Monitoring
+                <Mic className="w-5 h-5 relative z-10" />
+                <span className="relative z-10">Start Monitoring</span>
               </>
             )}
           </button>
@@ -354,14 +355,15 @@ export default function MonitoringView({
           <button
             onClick={handleStop}
             disabled={isStopping}
-            className="w-full h-14 bg-primary-container text-white font-bold text-title-md rounded-2xl shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50"
+            className="w-full h-14 bg-gradient-to-r from-primary-container to-[#c41a1f] text-white font-bold text-[15px] rounded-2xl shadow-[0_4px_20px_rgba(255,84,76,0.25)] hover:shadow-[0_6px_28px_rgba(255,84,76,0.35)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 relative overflow-hidden"
           >
+            <div className="absolute inset-0 shimmer" />
             {isStopping ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                <Square className="w-5 h-5" />
-                Stop Monitoring
+                <Square className="w-5 h-5 relative z-10" />
+                <span className="relative z-10">Stop Monitoring</span>
               </>
             )}
           </button>
@@ -370,12 +372,12 @@ export default function MonitoringView({
 
       {/* Recording Status Bar */}
       {isActive && (
-        <div className="flex items-center justify-between px-4 py-3 glass-card rounded-xl border border-red-500/20 bg-red-500/5 mb-4 animate-in fade-in duration-300">
+        <div className="flex items-center justify-between px-4 py-3 glass-card rounded-xl mb-4 animate-slide-up" style={{ borderColor: 'rgba(239,68,68,0.12)' }}>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Recording</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
+            <span className="text-[11px] font-bold text-red-400 uppercase tracking-[0.1em]">Recording</span>
           </div>
-          <div className="flex items-center gap-4 text-xs font-mono text-on-surface-variant">
+          <div className="flex items-center gap-4 text-[11px] font-mono text-on-surface-variant/60">
             <span>{formatDuration(recordingDuration)}</span>
             <span>{chunkCount} chunks</span>
             {uploading && <span className="text-secondary animate-pulse">↑ Uploading...</span>}
@@ -384,17 +386,19 @@ export default function MonitoringView({
       )}
 
       {/* Grid container */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3.5">
         
         {/* Voice Distress card */}
-        <div className="glass-card col-span-2 p-5 rounded-2xl space-y-3 relative overflow-hidden border border-white/5 shadow-md">
+        <div className="glass-card col-span-2 p-5 rounded-2xl space-y-3 relative overflow-hidden gradient-border shadow-md">
           {/* Subtle decoration light glow */}
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-[#72d4ef]/10 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 bg-tertiary/[0.08] rounded-full blur-[40px] pointer-events-none animate-glow-pulse" />
           
           <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2 text-on-surface-variant">
-              <Ear className="w-5 h-5 text-[#72d4ef]" />
-              <span className="text-[12px] font-bold text-on-surface-variant">Voice Distress Confidence</span>
+            <div className="flex items-center gap-2.5 text-on-surface-variant">
+              <div className="w-8 h-8 rounded-lg bg-tertiary/[0.08] flex items-center justify-center">
+                <Ear className="w-4 h-4 text-tertiary" />
+              </div>
+              <span className="text-[12px] font-bold text-on-surface-variant/80">Voice Distress Confidence</span>
             </div>
             <div className="flex items-center gap-3">
               {isActive && (
@@ -405,90 +409,99 @@ export default function MonitoringView({
                     setConfidence(75);
                     setDistressDetected(true);
                   }}
-                  className="px-2 py-1 rounded bg-[#72d4ef]/10 hover:bg-[#72d4ef]/20 border border-[#72d4ef]/20 text-[9px] uppercase tracking-wider font-extrabold text-[#72d4ef] transition-colors cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-tertiary/[0.08] hover:bg-tertiary/[0.15] border border-tertiary/15 text-[9px] uppercase tracking-[0.1em] font-extrabold text-tertiary transition-colors cursor-pointer"
                 >
                   Test &gt;50%
                 </button>
               )}
-              <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-[#72d4ef]'}`}>
+              <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
                 {confidence}%
               </span>
             </div>
           </div>
 
-          <div className="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+          <div className="h-2 w-full bg-surface-container/60 rounded-full overflow-hidden">
             <div 
-              className={`h-full rounded-full transition-all duration-500 ${distressDetected ? 'bg-gradient-to-r from-primary to-red-500' : 'bg-gradient-to-r from-secondary to-tertiary'}`}
+              className={`h-full rounded-full transition-all duration-500 relative ${distressDetected ? 'bg-gradient-to-r from-primary to-red-500' : 'bg-gradient-to-r from-secondary to-tertiary'}`}
               style={{ width: `${Math.min(confidence, 100)}%` }} 
-            />
+            >
+              {/* Glowing edge */}
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white/40 blur-[3px]" />
+            </div>
           </div>
 
-          <p className="text-body-sm text-on-surface-variant opacity-80 leading-relaxed font-medium">
+          <p className="text-[13px] text-on-surface-variant/60 leading-relaxed font-medium">
             {isActive ? transcript : 'Start monitoring to analyze voice patterns.'}
           </p>
 
           {/* Distress Alert */}
           {distressDetected && (
-            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/10 border border-primary/25 animate-in fade-in duration-300">
+            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-primary/[0.08] border border-primary/20 animate-slide-up">
               <AlertTriangle className="w-4 h-4 text-primary animate-pulse" />
-              <span className="text-xs font-bold text-primary uppercase tracking-wider">Threat Detected</span>
+              <span className="text-xs font-bold text-primary uppercase tracking-[0.1em]">Threat Detected</span>
             </div>
           )}
 
           {/* Conditional SOS Trigger when Voice Distress Confidence exceeds 50% */}
           {confidence > 50 && (
-            <div className="pt-2 border-t border-white/5 animate-in slide-in-from-top duration-300">
+            <div className="pt-3 border-t border-white/[0.06] animate-slide-up">
               <button
                 onClick={onTriggerSOS}
-                className="w-full py-3 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-widest rounded-xl shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-red-500/30"
-                style={{
-                  boxShadow: '0 0 15px rgba(220, 38, 38, 0.4)',
-                }}
+                className="w-full py-3.5 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-[0.12em] rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer relative overflow-hidden shadow-[0_0_20px_rgba(220,38,38,0.35)]"
               >
-                <ShieldAlert className="w-4.5 h-4.5 animate-bounce" />
-                Flag SOS Emergency
+                <div className="absolute inset-0 shimmer" />
+                <ShieldAlert className="w-4.5 h-4.5 animate-bounce relative z-10" />
+                <span className="relative z-10">Flag SOS Emergency</span>
               </button>
             </div>
           )}
         </div>
 
         {/* Motion risk block */}
-        <div className="glass-card p-4 rounded-2xl flex flex-col justify-between aspect-square border border-white/5">
-          <div className="space-y-1">
-            <Activity className="w-6 h-6 text-secondary" />
-            <h3 className="text-label-md text-on-surface-variant font-bold uppercase tracking-wider">Risk Score</h3>
+        <div className="glass-card p-4 rounded-2xl flex flex-col justify-between aspect-square gradient-border hover-lift">
+          <div className="space-y-2">
+            <div className="w-9 h-9 rounded-lg bg-secondary/[0.08] flex items-center justify-center">
+              <Activity className="w-5 h-5 text-secondary" />
+            </div>
+            <h3 className="text-[10px] text-on-surface-variant/60 font-bold uppercase tracking-[0.1em]">Risk Score</h3>
           </div>
           <div>
-            <div className={`text-xl font-bold ${riskScore >= 50 ? 'text-primary' : 'text-secondary'}`}>
+            <div className={`text-2xl font-black ${riskScore >= 50 ? 'text-primary' : 'text-secondary'}`}>
               {riskScore}%
             </div>
-            <p className="text-[10px] text-on-surface-variant opacity-75 font-semibold uppercase tracking-wider mt-0.5">
+            <p className="text-[10px] text-on-surface-variant/40 font-semibold uppercase tracking-[0.1em] mt-0.5">
               AI Analysis
             </p>
           </div>
         </div>
 
         {/* Isolation environment block */}
-        <div className="glass-card p-4 rounded-2xl flex flex-col justify-between aspect-square border border-white/5">
-          <div className="space-y-1">
-            <Search className="w-6 h-6 text-tertiary" />
-            <h3 className="text-label-md text-on-surface-variant font-bold uppercase tracking-wider">Status</h3>
+        <div className="glass-card p-4 rounded-2xl flex flex-col justify-between aspect-square gradient-border hover-lift">
+          <div className="space-y-2">
+            <div className="w-9 h-9 rounded-lg bg-tertiary/[0.08] flex items-center justify-center">
+              <Search className="w-5 h-5 text-tertiary" />
+            </div>
+            <h3 className="text-[10px] text-on-surface-variant/60 font-bold uppercase tracking-[0.1em]">Status</h3>
           </div>
           <div>
-            <div className={`text-xl font-bold ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
+            <div className={`text-2xl font-black ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
               {distressDetected ? 'Alert' : 'Safe'}
             </div>
-            <p className="text-[10px] text-on-surface-variant opacity-75 font-semibold uppercase tracking-wider mt-0.5">
+            <p className="text-[10px] text-on-surface-variant/40 font-semibold uppercase tracking-[0.1em] mt-0.5">
               Threat Level
             </p>
           </div>
         </div>
 
         {/* Risk Trend Curve Container */}
-        <div className="glass-card col-span-2 p-5 rounded-2xl space-y-4 border border-white/5 shadow-md">
+        <div className="glass-card col-span-2 p-5 rounded-2xl space-y-4 gradient-border shadow-md">
           <div className="flex justify-between items-center">
             <h3 className="text-[15px] font-black text-on-surface">AI Risk Trend</h3>
-            <span className="text-label-md text-on-surface-variant uppercase tracking-wider font-semibold">
+            <span className={`text-[9px] font-bold uppercase tracking-[0.1em] px-2.5 py-1 rounded-full border ${
+              isActive 
+                ? 'text-red-400 bg-red-500/[0.08] border-red-500/15' 
+                : 'text-on-surface-variant/50 bg-surface-container/60 border-white/[0.06]'
+            }`}>
               {isActive ? 'Live' : 'Idle'}
             </span>
           </div>
@@ -497,31 +510,33 @@ export default function MonitoringView({
           <div className="relative h-20 w-full pt-2">
             <svg className="w-full h-full" viewBox="0 0 400 100" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="chartGrad" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#72d4ef" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#72d4ef" stopOpacity="0" />
+                <linearGradient id="chartGradMonitor" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor={distressDetected ? '#ff544c' : '#72d4ef'} stopOpacity="0.2" />
+                  <stop offset="100%" stopColor={distressDetected ? '#ff544c' : '#72d4ef'} stopOpacity="0" />
                 </linearGradient>
               </defs>
-              {/* Grid guide line */}
-              <line x1="0" y1="80" x2="400" y2="80" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
-              <line x1="0" y1="40" x2="400" y2="40" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+              {/* Grid guide lines */}
+              <line x1="0" y1="80" x2="400" y2="80" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
+              <line x1="0" y1="40" x2="400" y2="40" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
               
-              {/* Safety curve path */}
+              {/* Area fill */}
               <path 
-                d={`M0,${100 - riskScore} Q50,${100 - riskScore * 0.8} 100,${100 - riskScore * 0.9} T200,${100 - riskScore} T300,${100 - riskScore * 0.85} T400,${100 - riskScore * 0.95}`}
-                fill="url(#chartGrad)" 
+                d={`M0,${100 - riskScore} Q50,${100 - riskScore * 0.8} 100,${100 - riskScore * 0.9} T200,${100 - riskScore} T300,${100 - riskScore * 0.85} T400,${100 - riskScore * 0.95} L400,100 L0,100 Z`}
+                fill="url(#chartGradMonitor)" 
               />
+              {/* Line */}
               <path 
                 d={`M0,${100 - riskScore} Q50,${100 - riskScore * 0.8} 100,${100 - riskScore * 0.9} T200,${100 - riskScore} T300,${100 - riskScore * 0.85} T400,${100 - riskScore * 0.95}`}
                 fill="none" 
                 stroke={distressDetected ? '#ff544c' : '#72d4ef'}
-                strokeWidth="3.5" 
+                strokeWidth="2.5" 
+                strokeLinecap="round"
               />
               
               {/* Highlight score dot */}
-              <circle cx="200" cy={100 - riskScore} r="5" fill={distressDetected ? '#ff544c' : '#72d4ef'} />
+              <circle cx="200" cy={100 - riskScore} r="4" fill={distressDetected ? '#ff544c' : '#72d4ef'} />
               {isActive && (
-                <circle cx="200" cy={100 - riskScore} r="10" fill={distressDetected ? '#ff544c' : '#72d4ef'} className="animate-ping opacity-40" />
+                <circle cx="200" cy={100 - riskScore} r="8" fill={distressDetected ? '#ff544c' : '#72d4ef'} className="animate-ping opacity-30" />
               )}
             </svg>
           </div>
@@ -529,41 +544,47 @@ export default function MonitoringView({
 
         {/* Sensor Health lists */}
         <div className="col-span-2 space-y-3 pt-2">
-          <h3 className="text-label-md font-black text-on-surface-variant uppercase tracking-widest pl-1">
+          <h3 className="text-[10px] font-black text-on-surface-variant/50 uppercase tracking-[0.12em] pl-1">
             Sensor Health
           </h3>
           
-          <div className="space-y-2">
-            <div className="flex items-center justify-between p-3.5 bg-surface-container/40 rounded-xl border border-white/5 shadow-sm transition-transform active:scale-[0.99] duration-150">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <Compass className="w-5 h-5 text-on-surface-variant opacity-75 animate-spin" style={{ animationDuration: '8s' }} />
-                <span className="font-semibold text-[15px] text-on-surface">GNSS Tracking</span>
+                <div className="w-9 h-9 rounded-lg bg-secondary/[0.08] flex items-center justify-center">
+                  <Compass className="w-4.5 h-4.5 text-secondary/80 animate-spin" style={{ animationDuration: '8s' }} />
+                </div>
+                <span className="font-semibold text-[14px] text-on-surface">GNSS Tracking</span>
               </div>
-              <span className="text-[10px] font-black uppercase text-secondary tracking-widest bg-secondary/15 px-3 py-1 rounded-full border border-secondary/20">
+              <span className="text-[9px] font-black uppercase text-secondary tracking-[0.1em] bg-secondary/[0.08] px-3 py-1.5 rounded-full border border-secondary/15">
                 ACTIVE
               </span>
             </div>
 
-            <div className="flex items-center justify-between p-3.5 bg-surface-container/40 rounded-xl border border-white/5 shadow-sm transition-transform active:scale-[0.99] duration-150">
+            <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <Ear className="w-5 h-5 text-on-surface-variant opacity-75" />
-                <span className="font-semibold text-[15px] text-on-surface">Biometric Audio</span>
+                <div className="w-9 h-9 rounded-lg bg-primary/[0.06] flex items-center justify-center">
+                  <Ear className="w-4.5 h-4.5 text-on-surface-variant/60" />
+                </div>
+                <span className="font-semibold text-[14px] text-on-surface">Biometric Audio</span>
               </div>
-              <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${
+              <span className={`text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border ${
                 isActive 
-                  ? 'text-red-400 bg-red-500/15 border-red-500/20' 
-                  : 'text-secondary bg-secondary/15 border-secondary/20'
+                  ? 'text-red-400 bg-red-500/[0.08] border-red-500/15' 
+                  : 'text-secondary bg-secondary/[0.08] border-secondary/15'
               }`}>
                 {isActive ? 'RECORDING' : 'IDLE'}
               </span>
             </div>
 
-            <div className="flex items-center justify-between p-3.5 bg-surface-container/40 rounded-xl border border-white/5 shadow-sm transition-transform active:scale-[0.99] duration-150">
+            <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <RefreshCw className="w-5 h-5 text-on-surface-variant opacity-75 animate-bounce" style={{ animationDuration: '3s' }} />
-                <span className="font-semibold text-[15px] text-on-surface">Cloud Sync</span>
+                <div className="w-9 h-9 rounded-lg bg-tertiary/[0.08] flex items-center justify-center">
+                  <RefreshCw className="w-4.5 h-4.5 text-tertiary/80 animate-bounce" style={{ animationDuration: '3s' }} />
+                </div>
+                <span className="font-semibold text-[14px] text-on-surface">Cloud Sync</span>
               </div>
-              <span className="text-[10px] font-black uppercase text-[#72d4ef] tracking-widest bg-[#72d4ef]/15 px-3 py-1 rounded-full border border-[#72d4ef]/20">
+              <span className="text-[9px] font-black uppercase text-tertiary tracking-[0.1em] bg-tertiary/[0.08] px-3 py-1.5 rounded-full border border-tertiary/15">
                 STABLE
               </span>
             </div>

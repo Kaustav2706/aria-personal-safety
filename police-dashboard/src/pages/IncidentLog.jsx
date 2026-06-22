@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Search, FileText, CheckCircle2, AlertOctagon, Filter, RefreshCw, ExternalLink } from 'lucide-react';
+import { Search, FileText, CheckCircle2, AlertOctagon, Filter, RefreshCw, Trash2 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
@@ -35,9 +35,26 @@ export default function IncidentLog() {
     e.stopPropagation();
     try {
       await axios.put(`${API_BASE}/police/incidents/${id}/resolve`, {}, { headers: policeHeaders });
+      if (window.showToast) window.showToast('Incident resolved successfully.', 'success');
       fetchIncidents();
     } catch (err) {
       console.error('Error resolving incident:', err);
+      if (window.showToast) window.showToast('Failed to resolve incident.', 'error');
+    }
+  };
+
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
+    if (!window.confirm('Are you sure you want to permanently delete this incident record? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await axios.delete(`${API_BASE}/incidents/${id}`);
+      if (window.showToast) window.showToast('Incident record deleted permanently.', 'success');
+      fetchIncidents();
+    } catch (err) {
+      console.error('Error deleting incident:', err);
+      if (window.showToast) window.showToast('Failed to delete incident record.', 'error');
     }
   };
 
@@ -52,27 +69,27 @@ export default function IncidentLog() {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.03em' }}>
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em', background: 'linear-gradient(90deg, #fff 0%, #a5b4fc 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             Incident Dispatch Records
           </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '4px', fontWeight: 500 }}>
-            Inspect audit records and diagnostic telemetry from past safety alarms
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px', fontWeight: 600 }}>
+            Audit database repository containing live telemetry and historical threat archives
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={fetchIncidents} style={{ fontSize: '0.75rem', padding: '8px 14px' }}>
-          <RefreshCw size={13} /> Refresh
+        <button className="btn btn-ghost" onClick={fetchIncidents} style={{ fontSize: '0.78rem', padding: '8px 14px', borderRadius: '8px' }}>
+          <RefreshCw size={13} /> Refresh List
         </button>
       </div>
 
       {/* ── Filters Bar ───────────────────────────────────────────────── */}
-      <div className="glass-card" style={{ padding: '14px 20px', display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>
-          <Filter size={13} /> FILTERS
+      <div className="glass-card" style={{ padding: '16px 24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', borderRadius: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.04em' }}>
+          <Filter size={14} style={{ color: 'var(--color-info)' }} /> ARCHIVE SEARCH
         </div>
 
         <div style={{ width: '1px', height: '24px', background: 'var(--border-color)' }} />
@@ -81,67 +98,67 @@ export default function IncidentLog() {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '10px',
           flex: 1,
-          minWidth: '220px',
+          minWidth: '240px',
           backgroundColor: 'var(--bg-primary)',
           border: '1px solid var(--border-color)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '0 12px',
+          borderRadius: '8px',
+          padding: '0 14px',
           transition: 'border-color 0.2s',
         }}>
           <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
           <input
             type="text"
-            placeholder="Search by name, ID, or phone..."
+            placeholder="Filter by victim name, ID hash, or phone number..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="input"
-            style={{ border: 'none', padding: '8px 0', background: 'transparent', flex: 1 }}
+            style={{ border: 'none', padding: '10px 0', background: 'transparent', flex: 1 }}
           />
         </div>
 
         {/* Status Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Status:</span>
-          <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">All Statuses</option>
-            <option value="active">Active</option>
-            <option value="resolved">Resolved</option>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Status:</span>
+          <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ borderRadius: '8px' }}>
+            <option value="all">All States</option>
+            <option value="active">Active Threats</option>
+            <option value="resolved">Resolved Cases</option>
           </select>
         </div>
 
         {/* Trigger Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Trigger:</span>
-          <select className="select" value={triggerFilter} onChange={(e) => setTriggerFilter(e.target.value)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Channel:</span>
+          <select className="select" value={triggerFilter} onChange={(e) => setTriggerFilter(e.target.value)} style={{ borderRadius: '8px' }}>
             <option value="all">All Triggers</option>
-            <option value="manual">Manual SOS</option>
+            <option value="manual">Manual SOS Button</option>
             <option value="monitoring">AI Monitoring</option>
-            <option value="audio">Voice Distress</option>
-            <option value="motion">Fall Sensor</option>
+            <option value="audio">Voice Distress Trigger</option>
+            <option value="motion">Fall Detection Sensor</option>
           </select>
         </div>
 
         {/* Results count */}
-        <div style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-          {filteredIncidents.length} records
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+          {filteredIncidents.length} records found
         </div>
       </div>
 
       {/* ── Results Table ─────────────────────────────────────────────── */}
-      <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="glass-card" style={{ padding: 0, overflow: 'hidden', borderRadius: '14px' }}>
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Incident ID</th>
-                <th>User Info</th>
-                <th>Trigger</th>
-                <th>Risk Score</th>
-                <th>Timestamp</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
+                <th style={{ paddingLeft: '24px' }}>Incident ID</th>
+                <th>Victim Profile</th>
+                <th>Trigger mechanism</th>
+                <th>Threat Risk Score</th>
+                <th>Logged Timestamp</th>
+                <th>Dispatch State</th>
+                <th style={{ textAlign: 'right', paddingRight: '24px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -155,35 +172,36 @@ export default function IncidentLog() {
                       navigate(`/reports/${inc.id}`);
                     }
                   }}
-                  style={{ cursor: 'pointer', animation: `fadeInUp 0.3s ease-out ${idx * 0.03}s backwards` }}
+                  style={{ 
+                    cursor: 'pointer', 
+                    animation: `fadeInUp 0.3s ease-out ${idx * 0.02}s backwards`,
+                  }}
                 >
-                  <td>
+                  <td style={{ paddingLeft: '24px' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-accent)', fontSize: '0.8rem', fontWeight: 600 }}>
-                      {inc.id?.slice(-12) || inc.id}
+                      #{inc.id?.slice(-12).toUpperCase()}
                     </span>
                   </td>
                   <td>
-                    <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.85rem' }}>{inc.userName || 'Registered User'}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>{inc.userPhone}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '2px' }}>
-                      Latitude: {inc.latitude?.toFixed(4)}°, Longitude: {inc.longitude?.toFixed(4)}°
-                    </div>
+                    <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.88rem' }}>{inc.userName || 'Registered User'}</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>{inc.userPhone}</div>
                   </td>
                   <td>
-                    <span className="badge badge-info" style={{ textTransform: 'capitalize', fontSize: '0.65rem' }}>
+                    <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '0.62rem', fontWeight: 800 }}>
                       {inc.triggerType}
                     </span>
                   </td>
                   <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <strong style={{
                         color: inc.riskScore >= 70 ? 'var(--color-danger)' : inc.riskScore >= 40 ? 'var(--color-warning)' : 'var(--color-success)',
                         fontSize: '0.95rem',
-                        fontWeight: 800,
+                        fontWeight: 900,
+                        fontFamily: 'var(--font-mono)'
                       }}>
                         {inc.riskScore}%
                       </strong>
-                      <div className="risk-gauge" style={{ width: '48px' }}>
+                      <div className="risk-gauge" style={{ width: '60px' }}>
                         <div className="risk-gauge-fill" style={{
                           width: `${inc.riskScore}%`,
                           background: inc.riskScore >= 70 ? 'var(--color-danger)' : inc.riskScore >= 40 ? 'var(--color-warning)' : 'var(--color-success)',
@@ -192,40 +210,53 @@ export default function IncidentLog() {
                     </div>
                   </td>
                   <td>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
-                      {new Date(inc.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                      {new Date(inc.createdAt).toLocaleString(undefined, { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                      })}
                     </span>
                   </td>
                   <td>
-                    <span className={`badge ${inc.status === 'active' ? 'badge-danger' : 'badge-success'}`}>
+                    <span className={`badge ${inc.status === 'active' ? 'badge-danger' : 'badge-success'}`} style={{ fontWeight: 800, fontSize: '0.62rem' }}>
                       {inc.status === 'active' ? '● ACTIVE' : '✓ RESOLVED'}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'inline-flex', gap: '6px' }}>
+                  <td style={{ textAlign: 'right', paddingRight: '24px' }}>
+                    <div style={{ display: 'inline-flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
                       <button
                         className="btn btn-ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           if (inc.status === 'active') {
                             navigate(`/map?incidentId=${inc.id}`);
                           } else {
                             navigate(`/reports/${inc.id}`);
                           }
                         }}
-                        style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+                        style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '6px', fontWeight: 800 }}
                       >
-                        <FileText size={12} /> Details
+                        <FileText size={12} /> Dossier
                       </button>
                       {inc.status === 'active' && (
                         <button
                           className="btn btn-success"
                           onClick={(e) => handleResolve(inc.id, e)}
-                          style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+                          style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '6px', fontWeight: 800 }}
                         >
                           Resolve
                         </button>
                       )}
+                      <button
+                        className="btn btn-danger"
+                        onClick={(e) => handleDelete(inc.id, e)}
+                        style={{ padding: '6px 10px', fontSize: '0.72rem', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Delete Dossier"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -233,19 +264,19 @@ export default function IncidentLog() {
 
               {filteredIncidents.length === 0 && !loading && (
                 <tr>
-                  <td colSpan="7" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    <Search size={28} style={{ opacity: 0.3, margin: '0 auto 8px' }} />
-                    <p>No incident logs found matching criteria</p>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '64px', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                    <Search size={32} style={{ opacity: 0.25, margin: '0 auto 10px' }} />
+                    <p style={{ fontWeight: 600 }}>No incident dispatch records found matching criteria</p>
                   </td>
                 </tr>
               )}
 
               {loading && (
                 <tr>
-                  <td colSpan="7" style={{ padding: '20px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {[1, 2, 3].map(i => (
-                        <div key={i} className="skeleton" style={{ height: '42px', width: '100%' }} />
+                  <td colSpan="7" style={{ padding: '24px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {[1, 2, 3, 4].map(i => (
+                        <div key={i} className="skeleton" style={{ height: '48px', width: '100%', borderRadius: '8px' }} />
                       ))}
                     </div>
                   </td>

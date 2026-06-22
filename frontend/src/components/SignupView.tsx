@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { authService } from '../services/api';
 import { setToken, setUser } from '../services/auth';
 
@@ -70,183 +70,193 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
   };
 
   return (
-      <div className="relative min-h-screen bg-[#1e0f0e] font-sans flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
-        {/* Background Decor */}
-        <div className="absolute top-[10%] left-[-15%] w-[80%] h-[30%] bg-primary/5 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-[10%] right-[-15%] w-[70%] h-[40%] bg-secondary-container/5 rounded-full blur-[110px] pointer-events-none" />
+    <div className="relative min-h-screen bg-[#1e0f0e] font-sans flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
+      {/* Background Decor Ambient Blobs */}
+      <div className="absolute top-[10%] left-[-15%] w-[400px] h-[400px] bg-primary/[0.07] rounded-full blur-[110px] pointer-events-none animate-glow-pulse" />
+      <div className="absolute bottom-[10%] right-[-15%] w-[400px] h-[400px] bg-[#3394f1]/[0.05] rounded-full blur-[120px] pointer-events-none animate-glow-pulse" style={{ animationDelay: '1s' }} />
 
-        <main className="w-full max-w-md z-10 space-y-6">
-          {/* Header Branding */}
-          <div className="flex flex-col items-center text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full glass-card border-white/10 mb-3 shadow-xl">
-              <ShieldCheck className="w-9 h-9 text-primary animate-pulse" />
+      {/* Dot grid pattern background */}
+      <div className="absolute inset-0 dot-grid pointer-events-none" />
+
+      <main className="w-full max-w-md z-10 space-y-6 my-8 animate-fade-in-scale">
+        
+        {/* Header Branding */}
+        <div className="flex flex-col items-center text-center">
+          <div className="relative w-16 h-16 mb-4">
+            {/* Glow ring */}
+            <div className="absolute inset-[-4px] rounded-full bg-gradient-to-tr from-primary/40 to-[#3394f1]/20 blur-[8px] animate-glow-pulse" />
+            <div className="relative w-full h-full bg-gradient-to-br from-primary-container to-[#c41a1f] rounded-full flex items-center justify-center overflow-hidden shadow-[0_0_24px_rgba(255,84,76,0.3)]">
+              <div className="absolute inset-0 shimmer" />
+              <ShieldCheck className="w-9 h-9 text-white relative z-10" />
             </div>
-            <h1 className="text-display-lg font-black tracking-tighter text-primary">ARIA</h1>
-            <p className="text-body-sm text-on-surface-variant font-medium opacity-80 mt-1">
-              Join the global safety network
-            </p>
           </div>
+          <h1 className="text-4xl font-black tracking-[-0.04em] text-gradient bg-gradient-to-r from-primary via-[#ffcec8] to-primary">ARIA</h1>
+          <p className="text-[12px] text-on-surface-variant/50 font-medium mt-1 tracking-wide">
+            Personal Safety Reimagined
+          </p>
+        </div>
 
-          {/* Signup Form Card */}
-          <section className="glass-card rounded-2xl p-6 shadow-2xl relative">
-            <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Signup Form Card */}
+        <div className="glass-card-elevated rounded-2xl p-7 space-y-5 relative overflow-hidden gradient-border">
+          <form onSubmit={handleSubmit} className="space-y-4">
 
-              {/* Error Display */}
-              {error && (
-                <div className="flex items-start gap-2 p-3 rounded-xl bg-error-container/20 border border-error/30 animate-in fade-in duration-200">
-                  <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
-                  <p className="text-xs text-error font-medium leading-relaxed">{error}</p>
-                </div>
-              )}
-
-              {/* Full Name */}
-              <div className="space-y-1">
-                <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                  Full Name
-                </label>
-                <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
-                  <input
-                    className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg"
-                    type="text"
-                    placeholder="John Doe"
-                    required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                  />
-                </div>
+            {/* Error Display */}
+            {error && (
+              <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-error-container/15 border border-error/20 animate-slide-up">
+                <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                <p className="text-xs text-error/90 font-medium leading-relaxed">{error}</p>
               </div>
+            )}
 
-              {/* Your Phone Number */}
-              <div className="space-y-1">
-                <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                  Phone Number
-                </label>
-                <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
-                  <input
-                    className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg"
-                    type="tel"
-                    placeholder="+1 (555) 123-4567"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </div>
+            {/* Full Name */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-on-surface-variant/60 ml-1 font-bold tracking-[0.12em] uppercase">
+                Full Name
+              </label>
+              <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
+                <User className="w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
+                <input
+                  className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
+                  type="text"
+                  placeholder="John Doe"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
               </div>
-
-
-              {/* Email Address */}
-              <div className="space-y-1">
-                <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                  Email Address
-                </label>
-                <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
-                  <input
-                    className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg"
-                    type="email"
-                    placeholder="name@example.com"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Password Grid */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                    Create Password
-                  </label>
-                  <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
-                    <input
-                      className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg font-mono placeholder:font-sans"
-                      type="password"
-                      placeholder="••••••••"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-label-md text-on-surface-variant ml-1 font-bold tracking-wider uppercase">
-                    Confirm Password
-                  </label>
-                  <div className="relative group rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary transition-all">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant h-5 w-5 opacity-70" />
-                    <input
-                      className="w-full h-11 pl-10 pr-4 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface text-body-lg font-mono placeholder:font-sans"
-                      type="password"
-                      placeholder="••••••••"
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Primary Submit */}
-              <div className="pt-3">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={`w-full h-14 bg-primary-container text-white rounded-xl font-bold text-title-md hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${registerSuccess ? 'bg-tertiary-container' : ''
-                    }`}
-                >
-                  {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : registerSuccess ? (
-                    <>
-                      <CheckCircle className="w-5 h-5 animate-bounce" />
-                      Account Secured!
-                    </>
-                  ) : (
-                    <>
-                      Create Account
-                      <span className="font-semibold text-lg">→</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-
-            {/* Already have an account row */}
-            <div className="mt-6 flex items-center justify-center gap-2">
-              <span className="w-8 h-px bg-outline-variant" />
-              <p className="text-body-sm text-on-surface-variant">Already have an account?</p>
-              <span className="w-8 h-px bg-outline-variant" />
             </div>
 
-            {/* Secondary Link to Login */}
-            <div className="mt-3">
+            {/* Phone Number */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-on-surface-variant/60 ml-1 font-bold tracking-[0.12em] uppercase">
+                Phone Number
+              </label>
+              <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
+                <Phone className="w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
+                <input
+                  className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
+                  type="tel"
+                  placeholder="+1 (555) 123-4567"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Email Address */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-on-surface-variant/60 ml-1 font-bold tracking-[0.12em] uppercase">
+                Email Address
+              </label>
+              <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
+                <Mail className="w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
+                <input
+                  className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-[13.5px]"
+                  type="email"
+                  placeholder="name@example.com"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Passwords fields split grid */}
+            <div className="grid grid-cols-2 gap-3.5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-on-surface-variant/60 ml-1 font-bold tracking-[0.12em] uppercase">
+                  Password
+                </label>
+                <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
+                  <Lock className="w-[16px] h-[16px] absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
+                  <input
+                    className="w-full h-11 bg-transparent text-on-surface pl-9 pr-3 rounded-xl focus:ring-0 focus:outline-none font-mono text-[13.5px] placeholder:font-sans"
+                    type="password"
+                    placeholder="••••••••"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-on-surface-variant/60 ml-1 font-bold tracking-[0.12em] uppercase">
+                  Confirm
+                </label>
+                <div className="relative group rounded-xl border border-outline-variant/60 bg-surface-container-lowest/80 focus-within:border-primary/60 focus-within:shadow-[0_0_0_3px_rgba(255,180,172,0.08)] transition-all duration-300">
+                  <Lock className="w-[16px] h-[16px] absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-primary/70 transition-colors" />
+                  <input
+                    className="w-full h-11 bg-transparent text-on-surface pl-9 pr-3 rounded-xl focus:ring-0 focus:outline-none font-mono text-[13.5px] placeholder:font-sans"
+                    type="password"
+                    placeholder="••••••••"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Primary Submit button */}
+            <div className="pt-3.5">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className={`w-full h-14 bg-gradient-to-r from-primary-container via-primary-container/90 to-[#b51419] text-white font-bold text-[15px] rounded-xl shadow-[0_4px_20px_rgba(255,84,76,0.2)] hover:shadow-[0_6px_28px_rgba(255,84,76,0.3)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 relative overflow-hidden ${
+                  registerSuccess ? 'from-[#34d399] to-[#059669] shadow-[0_4px_20px_rgba(52,211,153,0.2)]' : ''
+                }`}
+              >
+                <div className="absolute inset-0 shimmer" />
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : registerSuccess ? (
+                  <>
+                    <CheckCircle className="w-5 h-5 animate-bounce relative z-10" />
+                    <span className="relative z-10">Account Secured</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative z-10">Create Account</span>
+                    <ArrowRight className="w-5 h-5 relative z-10" />
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* Already have an account row */}
+          <div className="text-center pt-3 border-t border-white/[0.04] mt-2">
+            <p className="text-[13px] text-on-surface-variant/50">
+              Already have an account?
               <button
                 onClick={onGoToLogin}
-                className="w-full h-11 border border-outline-variant rounded-xl flex items-center justify-center font-bold text-[14px] text-primary hover:bg-white/5 transition-colors cursor-pointer"
+                className="text-primary font-bold hover:text-primary/80 transition-colors ml-1.5 cursor-pointer"
               >
                 Sign in
               </button>
-            </div>
-          </section>
+            </p>
+          </div>
+        </div>
 
-          {/* Encrypted trust footer and visual tags */}
-          <footer className="flex flex-col items-center gap-3 opacity-80 pt-2">
-            <div className="flex items-center gap-1.5 text-on-surface-variant text-[11px] font-bold uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4 text-primary" />
-              <span>End-to-end encrypted safety data</span>
-            </div>
-            <div className="flex gap-4 text-on-surface-variant text-[11px] font-bold uppercase tracking-wider">
-              <a href="#terms" className="hover:text-primary transition-colors">Terms of Service</a>
-              <span className="text-outline/35">•</span>
-              <a href="#privacy" className="hover:text-primary transition-colors">Privacy Policy</a>
-            </div>
-          </footer>
-        </main>
-      </div>
-    );
-  }
+        {/* Encrypted trust footer tags */}
+        <div className="flex justify-center gap-3">
+          <div className="flex items-center gap-2 glass-card px-4 py-2.5 rounded-full">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            <span className="font-bold text-[9px] text-on-surface-variant/50 uppercase tracking-[0.12em]">
+              Encrypted Safety
+            </span>
+          </div>
+          <div className="flex items-center gap-2 glass-card px-4 py-2.5 rounded-full">
+            <span className="w-2 h-2 bg-[#34d399] rounded-full animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.4)]" />
+            <span className="font-bold text-[9px] text-on-surface-variant/50 uppercase tracking-[0.12em]">
+              Server Nominal
+            </span>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  );
+}

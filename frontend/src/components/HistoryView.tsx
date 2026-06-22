@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { IncidentItem } from '../types';
-import { CheckCircle2, ChevronRight, ShieldAlert, RefreshCw, Trash } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ShieldAlert, RefreshCw, Trash, Calendar, Clock, MapPin } from 'lucide-react';
 
 interface HistoryViewProps {
   incidents: IncidentItem[];
@@ -9,9 +9,18 @@ interface HistoryViewProps {
   onRefresh?: () => Promise<void>;
   onDeleteIncident?: (id: string) => void;
   onResolveIncident?: (id: string) => void;
+  isLoading?: boolean;
 }
 
-export default function HistoryView({ incidents, onSelectIncident, userAvatar, onRefresh, onDeleteIncident, onResolveIncident }: HistoryViewProps) {
+export default function HistoryView({ 
+  incidents, 
+  onSelectIncident, 
+  userAvatar, 
+  onRefresh, 
+  onDeleteIncident, 
+  onResolveIncident,
+  isLoading = false
+}: HistoryViewProps) {
   const [filterActive, setFilterActive] = useState<'All' | 'Active' | 'Resolved'>('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -31,18 +40,18 @@ export default function HistoryView({ incidents, onSelectIncident, userAvatar, o
   };
 
   return (
-    <div className="pt-20 pb-32 px-6 font-sans select-none">
+    <div className="pt-20 pb-36 px-6 font-sans select-none animate-fade-in-scale">
       
       {/* Visual Filter Options Headers */}
-      <section className="flex gap-2 py-3 overflow-x-auto no-scrollbar scroll-smooth items-center">
+      <section className="flex gap-2.5 py-3 overflow-x-auto no-scrollbar scroll-smooth items-center relative z-10">
         {(['All', 'Active', 'Resolved'] as const).map((tag) => (
           <button
             key={tag}
             onClick={() => setFilterActive(tag)}
-            className={`px-5 py-2 rounded-full font-semibold text-xs tracking-wider uppercase transition-all duration-200 cursor-pointer ${
+            className={`px-5 py-2 rounded-full font-black text-[10px] tracking-wider uppercase transition-all duration-200 cursor-pointer ${
               filterActive === tag
-                ? 'bg-primary text-on-primary shadow-lg shadow-primary/20 scale-105'
-                : 'bg-surface-container text-on-surface-variant border border-white/5 hover:border-white/10'
+                ? 'bg-primary text-on-primary shadow-lg shadow-primary/20 scale-102'
+                : 'bg-surface-container-high/60 text-on-surface-variant/80 border border-white/5 hover:border-white/10 hover:bg-surface-container-highest/60'
             }`}
           >
             {tag}
@@ -53,8 +62,9 @@ export default function HistoryView({ incidents, onSelectIncident, userAvatar, o
         {onRefresh && (
           <button
             onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="ml-auto px-3 py-2 rounded-full bg-surface-container text-on-surface-variant border border-white/5 hover:border-white/10 cursor-pointer active:scale-95 transition-all"
+            disabled={isRefreshing || isLoading}
+            className="ml-auto p-2 rounded-full bg-surface-container-high/60 text-on-surface-variant/80 hover:text-primary border border-white/5 hover:border-white/10 cursor-pointer active:scale-90 transition-all"
+            title="Refresh logs"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -62,115 +72,152 @@ export default function HistoryView({ incidents, onSelectIncident, userAvatar, o
       </section>
 
       {/* Loading skeleton */}
-      {incidents.length === 0 && !isRefreshing && (
-        <div className="space-y-4 mt-4">
+      {isLoading && (
+        <div className="space-y-4 mt-4 relative z-10">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="glass-card p-4 rounded-2xl animate-pulse">
-              <div className="h-3 w-24 bg-surface-container-highest rounded mb-2" />
-              <div className="h-5 w-48 bg-surface-container-highest rounded mb-4" />
-              <div className="flex justify-between">
-                <div className="h-8 w-16 bg-surface-container-highest rounded" />
-                <div className="h-16 w-28 bg-surface-container-highest rounded-xl" />
+            <div key={i} className="glass-card p-5 rounded-3xl animate-pulse border border-white/5 space-y-4">
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                  <div className="h-3 w-16 bg-surface-container-highest rounded" />
+                  <div className="h-5.5 w-32 bg-surface-container-highest rounded" />
+                </div>
+                <div className="h-6 w-16 bg-surface-container-highest rounded-full" />
+              </div>
+              <div className="flex items-center gap-4 pt-1">
+                <div className="flex-1 space-y-2">
+                  <div className="h-8 w-14 bg-surface-container-highest rounded" />
+                  <div className="h-3 w-20 bg-surface-container-highest rounded" />
+                </div>
+                <div className="h-10 w-28 bg-surface-container-highest rounded-xl" />
+              </div>
+              <div className="flex justify-between items-center pt-3.5 border-t border-white/5">
+                <div className="h-3.5 w-12 bg-surface-container-highest rounded" />
+                <div className="h-3.5 w-20 bg-surface-container-highest rounded" />
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Empty State placeholder */}
+      {!isLoading && filteredIncidents.length === 0 && (
+        <div className="text-center py-20 px-6 glass-card-elevated rounded-3xl border border-white/5 space-y-6 mt-4 hover-lift relative overflow-hidden animate-in fade-in duration-300">
+          {/* Subtle background glow */}
+          <div className="absolute -top-12 -right-12 w-32 h-32 bg-secondary/5 rounded-full blur-[40px] pointer-events-none" />
+          <div className="absolute inset-0 dot-grid opacity-10 pointer-events-none" />
+
+          <div className="relative z-10 w-16 h-16 bg-secondary/10 border border-secondary/20 rounded-full flex items-center justify-center mx-auto shadow-md">
+            <CheckCircle2 className="w-8 h-8 text-secondary" />
+          </div>
+
+          <div className="relative z-10 space-y-2 max-w-xs mx-auto">
+            <h4 className="text-sm font-black text-white uppercase tracking-widest text-gradient bg-gradient-to-r from-secondary to-[#c0dcff]">No records found</h4>
+            <p className="text-xs text-on-surface-variant/80 leading-relaxed font-medium">
+              You haven't recorded any incidents or safety distress logs yet. All safety parameters are nominal.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* List of incident logs */}
-      <div className="space-y-4 mt-2">
-        {filteredIncidents.map((incident) => (
-          <div 
-            key={incident.id} 
-            onClick={() => onSelectIncident(incident)}
-            className="glass-card p-4 rounded-2xl flex flex-col gap-4 transition-all duration-200 active:scale-[0.99] hover:border-primary/25 cursor-pointer shadow-lg"
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">
-                  {incident.date}
-                </p>
-                <h3 className="text-[17px] font-black text-on-surface">
-                  {incident.title}
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Status capsule badge */}
-                <div className="status-pill px-3 py-1 rounded-full flex items-center gap-1.5 bg-surface-container/60 border border-white/5">
-                  <span className={`w-2.5 h-2.5 rounded-full ${incident.status === 'Active' ? 'bg-primary animate-ping' : 'bg-secondary'}`} />
-                  <span className={`text-[10px] font-black uppercase tracking-wider ${incident.status === 'Active' ? 'text-primary' : 'text-secondary'}`}>
-                    {incident.status}
-                  </span>
+      {!isLoading && filteredIncidents.length > 0 && (
+        <div className="space-y-4 mt-2 relative z-10">
+          {filteredIncidents.map((incident) => (
+            <div 
+              key={incident.id} 
+              onClick={() => onSelectIncident(incident)}
+              className="glass-card p-5 rounded-3xl flex flex-col gap-4 transition-all duration-200 active:scale-[0.99] hover:border-primary/20 hover-lift cursor-pointer shadow-lg gradient-border"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-[9px] font-black text-on-surface-variant/60 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-secondary" />
+                    {incident.date}
+                  </p>
+                  <h3 className="text-base font-black text-white tracking-wide">
+                    {incident.title}
+                  </h3>
                 </div>
 
-                {onDeleteIncident && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteIncident(incident.id);
-                    }}
-                    className="p-1.5 rounded bg-surface-container/60 hover:bg-red-950/20 text-on-surface-variant hover:text-red-400 border border-white/5 hover:border-red-900/30 transition-all cursor-pointer active:scale-90"
-                    title="Delete incident"
-                  >
-                    <Trash className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
+                <div className="flex items-center gap-2">
+                  {/* Status capsule badge */}
+                  <div className="status-pill px-3 py-1 rounded-full flex items-center gap-1.5 bg-surface-container/60 border border-white/5">
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${incident.status === 'Active' ? 'bg-primary opacity-75' : 'bg-secondary opacity-75'}`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${incident.status === 'Active' ? 'bg-primary' : 'bg-secondary'}`}></span>
+                    </span>
+                    <span className={`text-[9px] font-black uppercase tracking-wider ${incident.status === 'Active' ? 'text-primary' : 'text-secondary'}`}>
+                      {incident.status}
+                    </span>
+                  </div>
 
-            {/* Middle preview detailing scores */}
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-end gap-1">
-                  <span className="text-3xl font-black text-primary leading-none">
-                    {incident.riskScore}
-                  </span>
-                  <span className="text-xs text-on-surface-variant font-bold pb-0.5">
-                    /100
-                  </span>
+                  {onDeleteIncident && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteIncident(incident.id);
+                      }}
+                      className="p-1.5 rounded-lg bg-surface-container/60 hover:bg-primary/10 text-on-surface-variant/70 hover:text-primary border border-white/5 hover:border-primary/20 transition-all cursor-pointer active:scale-90"
+                      title="Delete incident"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-xs text-on-surface-variant uppercase font-bold tracking-wider mt-1">Risk Score</p>
               </div>
 
-              {/* Coordinates display */}
-              <div className="px-3 py-2 rounded-xl bg-surface-container/60 border border-white/5 shrink-0">
-                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Location</p>
-                <p className="text-[10px] font-mono text-on-surface">{incident.coordinates}</p>
-              </div>
-            </div>
-            
-            {/* View Details link footer */}
-            <div className="flex justify-between items-center text-xs border-t border-white/5 pt-3 mt-1">
-              <div className="flex items-center gap-3">
-                <span className="text-on-surface-variant">{incident.time}</span>
-                {incident.status === 'Active' && onResolveIncident && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onResolveIncident(incident.id);
-                    }}
-                    className="px-2.5 py-1 rounded bg-[#3394f1]/20 hover:bg-[#3394f1]/35 text-[#a2c9ff] text-[10px] font-extrabold uppercase tracking-wider border border-[#3394f1]/40 transition-all cursor-pointer active:scale-95"
-                  >
-                    Resolve
-                  </button>
-                )}
-              </div>
-              <span className="text-secondary font-black flex items-center gap-1">
-                Inspect Feed
-                <ChevronRight className="w-4.5 h-4.5" />
-              </span>
-            </div>
-          </div>
-        ))}
+              {/* Middle preview detailing scores */}
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="flex items-end gap-1 leading-none">
+                    <span className="text-3.5xl font-black text-gradient bg-gradient-to-r from-primary to-[#ffcec8]">
+                      {incident.riskScore}
+                    </span>
+                    <span className="text-[10px] text-on-surface-variant/50 font-bold pb-1">
+                      /100
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-on-surface-variant/50 uppercase font-black tracking-widest mt-1">Risk Score</p>
+                </div>
 
-        {filteredIncidents.length === 0 && incidents.length > 0 && (
-          <div className="text-center py-16 text-on-surface-variant h-48 flex flex-col justify-center gap-2">
-            <ShieldAlert className="w-10 h-10 text-outline mx-auto animate-bounce" />
-            <p className="font-semibold text-sm">No historical incidents match.</p>
-          </div>
-        )}
-      </div>
+                {/* Coordinates display */}
+                <div className="px-3.5 py-2 rounded-xl bg-surface-container/60 border border-white/5 shrink-0 flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-secondary" />
+                  <div>
+                    <p className="text-[8px] font-black text-on-surface-variant/50 uppercase tracking-widest">Location</p>
+                    <p className="text-[9px] font-mono font-bold text-white mt-0.5">{incident.coordinates}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* View Details link footer */}
+              <div className="flex justify-between items-center text-xs border-t border-white/5 pt-3.5 mt-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono text-on-surface-variant/70 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-on-surface-variant/50" />
+                    {incident.time}
+                  </span>
+                  {incident.status === 'Active' && onResolveIncident && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onResolveIncident(incident.id);
+                      }}
+                      className="px-2.5 py-1 rounded bg-secondary/10 hover:bg-secondary/20 text-secondary text-[9px] font-black uppercase tracking-wider border border-secondary/20 transition-all cursor-pointer active:scale-95"
+                    >
+                      Resolve
+                    </button>
+                  )}
+                </div>
+                <span className="text-secondary hover:text-[#c0dcff] font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 transition-colors">
+                  Inspect Feed
+                  <ChevronRight className="w-4 h-4" />
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
     </div>
   );

@@ -42,6 +42,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.url}`);
+  res.on('finish', () => {
+    console.log(`[RESPONSE] ${req.method} ${req.url} -> ${res.statusCode}`);
+  });
+  next();
+});
+
+
 // Serve local uploads folder statically for PDF report access
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 

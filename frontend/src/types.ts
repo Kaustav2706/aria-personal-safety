@@ -24,6 +24,10 @@ export interface UserProfile {
   avatar: string;
   phone: string;
   emergencyPhone: string;
+  gender?: string;
+  age?: number;
+  homeAddress?: string;
+  notificationsEnabled?: boolean;
 }
 
 export interface EmergencyContact {

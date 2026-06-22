@@ -8,21 +8,21 @@
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Deep Navy Command Center Palette */
-  --bg-primary: #060a13;
-  --bg-secondary: #0c1220;
-  --bg-tertiary: #131b2e;
-  --bg-card: #0f1729;
-  --bg-elevated: #172036;
-  --bg-hover: #1a2540;
+  /* Solid Professional Dark Command Center Palette */
+  --bg-primary: #0b0c10;
+  --bg-secondary: #13141a;
+  --bg-tertiary: #1a1b23;
+  --bg-card: #14151b;
+  --bg-elevated: #1f2029;
+  --bg-hover: #262733;
 
-  --border-color: rgba(56, 78, 122, 0.35);
-  --border-glow: rgba(59, 130, 246, 0.2);
-  --border-danger: rgba(239, 68, 68, 0.3);
+  --border-color: rgba(75, 85, 99, 0.3);
+  --border-glow: rgba(156, 163, 175, 0.25);
+  --border-danger: rgba(239, 68, 68, 0.35);
 
-  --text-primary: #edf2f7;
-  --text-secondary: #8896b3;
-  --text-muted: #506080;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
   --text-accent: #60a5fa;
 
   --color-danger: #ef4444;
@@ -31,14 +31,14 @@
   --color-success: #10b981;
   --color-info: #3b82f6;
   --color-accent: #6366f1;
-  --color-cyan: #22d3ee;
+  --color-cyan: #06b6d4;
 
   /* Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.5);
-  --shadow-glow-blue: 0 0 20px rgba(59, 130, 246, 0.15);
-  --shadow-glow-red: 0 0 20px rgba(239, 68, 68, 0.2);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --shadow-glow-blue: 0 0 15px rgba(255, 255, 255, 0.03);
+  --shadow-glow-red: 0 0 20px rgba(239, 68, 68, 0.25);
 
   /* Radius */
   --radius-sm: 6px;
@@ -144,7 +144,7 @@ h1, h2, h3, h4, h5 {
 
 /* ── Glass Card ────────────────────────────────────────────────────────── */
 .glass-card {
-  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(15, 23, 41, 0.9) 100%);
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(19, 20, 26, 0.95) 100%);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 24px;
@@ -587,3 +587,234 @@ a:hover { color: var(--color-cyan); }
   background: linear-gradient(180deg, var(--border-color), transparent);
   z-index: 1;
 }
+
+/* ── Neon Border Glow Elements ────────────────────────────────────────── */
+.border-glow-red { border-color: rgba(239, 68, 68, 0.4) !important; box-shadow: 0 0 15px rgba(239, 68, 68, 0.15) !important; }
+.border-glow-green { border-color: rgba(16, 185, 129, 0.4) !important; box-shadow: 0 0 15px rgba(16, 185, 129, 0.15) !important; }
+.border-glow-blue { border-color: rgba(59, 130, 246, 0.4) !important; box-shadow: 0 0 15px rgba(59, 130, 246, 0.15) !important; }
+.border-glow-purple { border-color: rgba(99, 102, 241, 0.4) !important; box-shadow: 0 0 15px rgba(99, 102, 241, 0.15) !important; }
+
+/* ── Sleek Glass Overlay for Maps ──────────────────────────────────────── */
+.map-glass-overlay {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+}
+
+/* ── Toast Notifications ────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: rgba(12, 18, 32, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  min-width: 280px;
+  max-width: 400px;
+}
+.toast-success {
+  border-left: 4px solid var(--color-success);
+}
+.toast-error {
+  border-left: 4px solid var(--color-danger);
+}
+.toast-info {
+  border-left: 4px solid var(--color-info);
+}
+
+/* ── Premium High-Tech Dashboard Enhancements ───────────────────────────── */
+
+/* Siren Overlay screen flash */
+@keyframes siren-flash-screen {
+  0%, 100% { box-shadow: inset 0 0 0px rgba(239, 68, 68, 0); }
+  50% { box-shadow: inset 0 0 40px rgba(239, 68, 68, 0.2); }
+}
+.siren-active-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  animation: siren-flash-screen 2s infinite ease-in-out;
+  border: 3px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Audio Waveform simulation */
+.audio-waveform-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 52px;
+  padding: 8px 14px;
+  background: rgba(6, 10, 19, 0.45);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+.waveform-bar {
+  width: 3px;
+  background-color: var(--text-muted);
+  border-radius: 99px;
+  height: 20%;
+  transition: height 0.1s ease-in-out, background-color 0.3s ease;
+}
+.audio-waveform-container.playing .waveform-bar {
+  animation: waveform-jump 0.8s infinite alternate ease-in-out;
+  background-color: var(--color-cyan);
+}
+/* Stagger animation delays for each bar */
+.waveform-bar:nth-child(2n) { animation-delay: 0.12s; }
+.waveform-bar:nth-child(3n) { animation-delay: 0.24s; }
+.waveform-bar:nth-child(4n) { animation-delay: 0.36s; }
+.waveform-bar:nth-child(5n) { animation-delay: 0.48s; }
+.waveform-bar:nth-child(6n) { animation-delay: 0.08s; }
+.waveform-bar:nth-child(7n) { animation-delay: 0.18s; }
+.waveform-bar:nth-child(8n) { animation-delay: 0.28s; }
+
+@keyframes waveform-jump {
+  0% { height: 15%; }
+  100% { height: 95%; }
+}
+
+/* Fingerprint Laser Scanner Effect */
+.fingerprint-scanner-box {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  background: rgba(12, 18, 32, 0.7);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0 auto;
+}
+.fingerprint-laser {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--color-cyan);
+  box-shadow: 0 0 8px var(--color-cyan), 0 0 16px var(--color-cyan);
+  animation: laser-scan 2.5s infinite ease-in-out;
+}
+@keyframes laser-scan {
+  0%, 100% { top: 5%; }
+  50% { top: 95%; }
+}
+
+/* Official Dossier Watermark */
+.dossier-watermark {
+  position: absolute;
+  top: 35%;
+  left: 20%;
+  transform: rotate(-25deg);
+  font-size: 5rem;
+  font-weight: 900;
+  color: rgba(239, 68, 68, 0.03);
+  letter-spacing: 0.25em;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  text-transform: uppercase;
+}
+
+/* Tactical HUD Map Overlay card */
+.tactical-hud {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  z-index: 1000;
+  background: rgba(6, 10, 19, 0.88);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--color-info);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 250px;
+  pointer-events: auto;
+}
+.tactical-hud-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+}
+.tactical-hud-label {
+  color: var(--text-secondary);
+}
+.tactical-hud-value {
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Cyber-grid fixed background pattern */
+.cyber-grid {
+  position: fixed;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(59, 130, 246, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.012) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Sound mute toggle button */
+.mute-button {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mute-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-glow);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+  transform: scale(1.05);
+}
+.mute-button:active {
+  transform: scale(0.95);
+}
+
+

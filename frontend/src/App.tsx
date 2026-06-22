@@ -25,7 +25,7 @@ import ProfileView from './components/ProfileView';
 import ContactsView from './components/ContactsView';
 
 // Nav and layout helpers
-import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTriangle, Radio } from 'lucide-react';
+import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTriangle, Radio, X } from 'lucide-react';
 
 // ── Helper: Convert BackendIncident to frontend IncidentItem ────────────────
 function backendToIncidentItem(inc: BackendIncident): IncidentItem {
@@ -53,13 +53,29 @@ function backendToIncidentItem(inc: BackendIncident): IncidentItem {
   };
 }
 
+function getUserInitials(name: string): string {
+  if (!name) return 'U';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('SPLASH');
 
   // Core state collections
-  const [profile, setProfile] = useState<UserProfile>(defaultProfile);
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    const local = localStorage.getItem('aria_user_profile_overrides');
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch (e) {}
+    }
+    return defaultProfile;
+  });
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [incidents, setIncidents] = useState<IncidentItem[]>([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<IncidentItem | null>(null);
 
   // Live state
@@ -89,21 +105,50 @@ export default function App() {
 
   // ── Load user data after authentication ─────────────────────────────────
   const loadUserData = useCallback(async () => {
+    setIncidentsLoading(true);
     try {
       // Load profile from backend
       const profileRes = await profileService.getProfile();
       if (profileRes.data.success && profileRes.data.user) {
         const u = profileRes.data.user;
-        setProfile({
+        const base = {
           name: u.name || 'User',
           email: u.email || '',
           avatar: defaultProfile.avatar,
           phone: u.phone || '',
           emergencyPhone: u.phone || '',
-        });
+        };
+        const local = localStorage.getItem('aria_user_profile_overrides');
+        if (local) {
+          try {
+            const parsed = JSON.parse(local);
+            setProfile({
+              ...base,
+              ...parsed,
+              name: parsed.name || base.name,
+              email: parsed.email || base.email,
+              phone: parsed.phone || base.phone,
+            });
+          } catch {}
+        } else {
+          setProfile(base);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[APP] Failed to load profile:', err);
+      if (err.response?.status === 404) {
+        authLogout();
+        setProfile(defaultProfile);
+        setCurrentScreen('SECURE_LOGIN');
+        setIncidentsLoading(false);
+        return;
+      }
+      const local = localStorage.getItem('aria_user_profile_overrides');
+      if (local) {
+        try {
+          setProfile(JSON.parse(local));
+        } catch {}
+      }
     }
 
     try {
@@ -115,6 +160,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('[APP] Failed to load incidents:', err);
+    } finally {
+      setIncidentsLoading(false);
     }
 
     // Load contacts from local storage
@@ -191,6 +238,7 @@ export default function App() {
   // ── Profile updates ─────────────────────────────────────────────────────
   const handleUpdateProfile = (updated: UserProfile) => {
     setProfile(updated);
+    localStorage.setItem('aria_user_profile_overrides', JSON.stringify(updated));
   };
 
   // ── Contacts mutations ──────────────────────────────────────────────────
@@ -277,9 +325,14 @@ export default function App() {
       if (res.data.success) {
         setIncidents((prev) => prev.filter((inc) => inc.id !== id));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[APP] Failed to delete incident:', err);
-      alert('Failed to delete incident. Please try again.');
+      if (err.response?.status === 404) {
+        // If already deleted in the database, clear it from local UI state
+        setIncidents((prev) => prev.filter((inc) => inc.id !== id));
+      } else {
+        alert('Failed to delete incident. Please try again.');
+      }
     }
   };
 
@@ -390,15 +443,30 @@ export default function App() {
 
         {/* Outer Header Wrapper for Dashboards */}
         {hasBottomNav && (
-          <header className="fixed top-0 w-full z-50 flex justify-between items-center max-w-md mx-auto px-6 h-16 bg-[#1e0f0e]/80 backdrop-blur-xl border-b border-white/10 shadow-sm">
+          <header className="fixed top-0 w-full z-50 flex justify-between items-center max-w-md mx-auto px-6 h-16 bg-[#1e0f0e]/85 backdrop-blur-2xl border-b border-white/[0.06] shadow-[0_1px_12px_rgba(0,0,0,0.3)]">
             <div className="flex items-center gap-3">
+              {/* Avatar with gradient ring */}
+              <div 
+                onClick={() => setCurrentScreen('PROFILE')}
+                className="relative w-10 h-10 rounded-full cursor-pointer group shrink-0"
+                title="View Profile"
+              >
+                <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary/60 via-tertiary/40 to-secondary/50 p-[1.5px] group-hover:from-primary group-hover:to-secondary transition-all duration-300">
+                  <div className="w-full h-full rounded-full bg-gradient-to-br from-surface-container-high to-surface-container-lowest flex items-center justify-center border border-white/[0.04] shadow-inner">
+                    <span className="text-[11px] font-black tracking-tight text-gradient bg-gradient-to-r from-primary to-[#ffcec8] drop-shadow-[0_0_4px_rgba(255,180,172,0.3)] select-none">
+                      {getUserInitials(profile.name)}
+                    </span>
+                  </div>
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#34d399] border-2 border-[#1e0f0e]" />
+              </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider font-extrabold text-on-surface-variant leading-none">
+                <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-on-surface-variant/70 leading-none">
                   Hello, {profile.name.split(' ')[0]}
                 </p>
                 <h1 
                   onClick={() => setCurrentScreen('DASHBOARD')}
-                  className="text-xl font-black text-primary tracking-tighter cursor-pointer"
+                  className="text-xl font-black tracking-tighter cursor-pointer text-gradient bg-gradient-to-r from-primary via-[#ffcec8] to-primary"
                 >
                   ARIA
                 </h1>
@@ -409,35 +477,45 @@ export default function App() {
             <div className="relative">
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="w-10 h-10 rounded-full bg-surface-container-highest/20 hover:bg-surface-container-highest flex items-center justify-center text-primary active:scale-95 transition-all cursor-pointer relative"
+                className="w-10 h-10 rounded-full bg-surface-container-highest/20 hover:bg-surface-container-highest/50 flex items-center justify-center text-on-surface-variant hover:text-primary active:scale-95 transition-all duration-200 cursor-pointer relative"
               >
-                <Bell className="w-5 h-5" />
+                <Bell className="w-[18px] h-[18px]" />
                 {activeNotifications.length > 0 && (
-                  <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-primary" />
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-primary-container shadow-[0_0_6px_rgba(255,84,76,0.6)]" />
                 )}
               </button>
 
               {/* Toast Panel Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-64 rounded-2xl glass-card p-4 border border-primary/25 space-y-3 z-50 animate-in fade-in duration-200">
-                  <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-primary">Alert Center</span>
-                    <button 
-                      onClick={() => setActiveNotifications([])}
-                      className="text-[9px] uppercase font-bold text-on-surface-variant hover:text-white"
-                    >
-                      Clear
-                    </button>
+                <div className="absolute right-0 mt-3 w-72 rounded-2xl bg-[#261615] border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.85)] p-5 space-y-3 z-50 animate-fade-in-scale">
+                  <div className="flex justify-between items-center pb-3 border-b border-white/[0.06]">
+                    <span className="text-[10px] font-black uppercase tracking-[0.15em] text-primary">Alert Center</span>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => setActiveNotifications([])}
+                        className="text-[9px] uppercase font-bold text-on-surface-variant/65 hover:text-primary transition-colors cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                      <button 
+                        onClick={() => setShowNotifications(false)}
+                        className="w-5 h-5 rounded-full hover:bg-white/10 flex items-center justify-center text-on-surface-variant/60 hover:text-primary transition-colors cursor-pointer"
+                        title="Close Alerts"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2.5 max-h-48 overflow-y-auto no-scrollbar">
                     {activeNotifications.map((note, index) => (
-                      <p key={index} className="text-xs text-on-surface-variant leading-normal">
-                        • {note}
-                      </p>
+                      <div key={index} className="flex items-start gap-2 animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
+                        <span className="w-1 h-1 rounded-full bg-primary/60 mt-1.5 shrink-0" />
+                        <p className="text-xs text-on-surface-variant/80 leading-relaxed">{note}</p>
+                      </div>
                     ))}
                     {activeNotifications.length === 0 && (
-                      <p className="text-xs text-on-surface-variant/40 italic text-center py-2">
-                        All safety check systems normal.
+                      <p className="text-xs text-on-surface-variant/30 italic text-center py-3">
+                        All safety systems nominal.
                       </p>
                     )}
                   </div>
@@ -489,6 +567,7 @@ export default function App() {
         {currentScreen === 'HISTORY' && (
           <HistoryView 
             incidents={incidents}
+            isLoading={incidentsLoading}
             userAvatar={profile.avatar}
             onSelectIncident={(inc) => {
               setSelectedIncident(inc);
@@ -535,72 +614,43 @@ export default function App() {
 
         {/* Bottom Nav Bar Render */}
         {hasBottomNav && (
-          <nav className="fixed bottom-0 w-full max-w-md mx-auto z-40 rounded-t-[20px] bg-[#2c1b1a]/85 backdrop-blur-2xl border-t border-white/10 flex justify-around items-center h-20 px-2 pb-safe-area-bottom shadow-2xl">
-            {/* Home Trigger button */}
-            <button 
-              onClick={() => setCurrentScreen('DASHBOARD')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'DASHBOARD' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <Home className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Home</span>
-            </button>
+          <nav className="fixed bottom-0 w-full max-w-md mx-auto z-40 rounded-t-[22px] bg-[#2c1b1a]/90 backdrop-blur-2xl border-t border-white/[0.06] flex justify-around items-center h-[72px] px-3 pb-safe-area-bottom shadow-[0_-4px_24px_rgba(0,0,0,0.3)]">
+            {/* Subtle gradient glow on top edge */}
+            <div className="absolute top-0 left-8 right-8 h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
 
-            {/* Monitoring Trigger */}
-            <button 
-              onClick={() => setCurrentScreen('MONITORING')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'MONITORING' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <Eye className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Monitor</span>
-            </button>
-
-            {/* Safe Ride */}
-            <button 
-              onClick={() => setCurrentScreen('SAFE_RIDE')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'SAFE_RIDE' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <Car className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Ride</span>
-            </button>
-
-            {/* History */}
-            <button 
-              onClick={() => setCurrentScreen('HISTORY')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'HISTORY' || currentScreen === 'INCIDENT_DETAILS' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <History className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Logs</span>
-            </button>
-
-            {/* Contacts */}
-            <button 
-              onClick={() => setCurrentScreen('CONTACTS')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'CONTACTS' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <Users className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Contacts</span>
-            </button>
-
-            {/* Profile */}
-            <button 
-              onClick={() => setCurrentScreen('PROFILE')}
-              className={`flex flex-col items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer ${
-                currentScreen === 'PROFILE' ? 'text-primary font-bold' : 'text-on-surface-variant'
-              }`}
-            >
-              <User className="w-5.5 h-5.5" />
-              <span className="text-[10px] font-semibold tracking-wide uppercase mt-1 leading-none">Profile</span>
-            </button>
+            {[{
+              key: 'DASHBOARD', icon: Home, label: 'Home'
+            }, {
+              key: 'MONITORING', icon: Eye, label: 'Monitor'
+            }, {
+              key: 'SAFE_RIDE', icon: Car, label: 'Ride'
+            }, {
+              key: 'HISTORY', icon: History, label: 'Logs', match: ['HISTORY', 'INCIDENT_DETAILS']
+            }, {
+              key: 'CONTACTS', icon: Users, label: 'Contacts'
+            }, {
+              key: 'PROFILE', icon: User, label: 'Profile'
+            }].map(({ key, icon: Icon, label, match }) => {
+              const isActive = match ? match.includes(currentScreen) : currentScreen === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setCurrentScreen(key as Screen)}
+                  className={`relative flex flex-col items-center justify-center py-1.5 px-2 transition-all duration-250 active:scale-90 cursor-pointer group ${
+                    isActive ? 'text-primary' : 'text-on-surface-variant/60 hover:text-on-surface-variant'
+                  }`}
+                >
+                  <Icon className="w-[20px] h-[20px]" strokeWidth={isActive ? 2.5 : 1.8} />
+                  <span className={`text-[9px] tracking-[0.08em] uppercase mt-1 leading-none ${
+                    isActive ? 'font-extrabold' : 'font-semibold'
+                  }`}>{label}</span>
+                  {/* Active indicator pill */}
+                  {isActive && (
+                    <span className="absolute -bottom-1 w-5 h-[3px] rounded-full bg-primary shadow-[0_0_8px_rgba(255,180,172,0.5)]" />
+                  )}
+                </button>
+              );
+            })}
           </nav>
         )}
 
