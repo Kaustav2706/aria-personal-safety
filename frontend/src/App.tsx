@@ -305,9 +305,13 @@ export default function App() {
         setSosTranscript(inc.audioTranscript || '');
         setRiskScore(inc.riskScore);
 
-        // Add to local incidents list
+        // Add to local incidents list if not already present (prevents duplicates from socket events)
         const newItem = backendToIncidentItem(inc);
-        setIncidents((prev) => [newItem, ...prev]);
+        setIncidents((prev) => {
+          const exists = prev.some(i => i.id === newItem.id);
+          if (exists) return prev;
+          return [newItem, ...prev];
+        });
 
         setCurrentScreen('SOS_ACTIVE');
       }
@@ -322,17 +326,21 @@ export default function App() {
   };
 
   const handleDeleteIncident = async (id: string) => {
+    console.log('[APP] handleDeleteIncident called for ID:', id);
     const confirmDelete = window.confirm('Are you sure you want to permanently delete this incident record?');
     if (!confirmDelete) return;
     try {
       const res = await incidentService.delete(id);
-      if (res.data.success) {
-        setIncidents((prev) => prev.filter((inc) => inc.id !== id));
-      }
+      console.log('[APP] Delete API response:', res.data);
+      setIncidents((prev) => {
+        const filtered = prev.filter((inc) => inc.id !== id);
+        console.log('[APP] Incidents after deletion filter:', filtered.map(i => i.id));
+        return filtered;
+      });
     } catch (err: any) {
       console.error('[APP] Failed to delete incident:', err);
       if (err.response?.status === 404) {
-        // If already deleted in the database, clear it from local UI state
+        console.log('[APP] Incident already deleted on backend (404), removing from local state.');
         setIncidents((prev) => prev.filter((inc) => inc.id !== id));
       } else {
         alert('Failed to delete incident. Please try again.');
@@ -548,7 +556,11 @@ export default function App() {
             onRiskScoreChange={setRiskScore}
             onIncidentCreated={(inc) => {
               const newItem = backendToIncidentItem(inc);
-              setIncidents((prev) => [newItem, ...prev]);
+              setIncidents((prev) => {
+                const exists = prev.some(i => i.id === newItem.id);
+                if (exists) return prev;
+                return [newItem, ...prev];
+              });
             }}
             onTriggerSOS={handleTriggerSOS}
           />

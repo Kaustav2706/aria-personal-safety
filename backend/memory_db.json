@@ -88,47 +88,7 @@
       "phone": "+919876543210"
     }
   ],
-  "incidents": [
-    {
-      "id": "inc_oak9hpmmp",
-      "userId": "usr_b3d1yo2qy",
-      "status": "resolved",
-      "triggerType": "manual",
-      "latitude": 0,
-      "longitude": 0,
-      "riskScore": 80,
-      "audioTranscript": "",
-      "createdAt": "2026-06-23T04:38:21.636Z"
-    },
-    {
-      "id": "inc_u4d73xx18",
-      "userId": "usr_b3d1yo2qy",
-      "status": "resolved",
-      "triggerType": "manual",
-      "latitude": 22.4803,
-      "longitude": 88.403,
-      "riskScore": 79,
-      "audioTranscript": "",
-      "createdAt": "2026-06-23T04:38:24.744Z"
-    }
-  ],
-  "locationHistory": [
-    {
-      "id": 1,
-      "incidentId": "inc_oak9hpmmp",
-      "latitude": 0,
-      "longitude": 0,
-      "riskScore": 80,
-      "timestamp": "2026-06-23T04:38:21.636Z"
-    },
-    {
-      "id": 2,
-      "incidentId": "inc_u4d73xx18",
-      "latitude": 22.4803,
-      "longitude": 88.403,
-      "riskScore": 79,
-      "timestamp": "2026-06-23T04:38:24.744Z"
-    }
-  ],
+  "incidents": [],
+  "locationHistory": [],
   "sessions": []
 }
