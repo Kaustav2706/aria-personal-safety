@@ -1,7 +1,4 @@
-import { pool, dbMode } from '../config/db.js';
-
-// Memory cache fallback storage
-const memorySessions = [];
+import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class MonitoringSession {
   /**
@@ -21,7 +18,8 @@ export class MonitoringSession {
         lastActivity: now,
         status: 'active'
       };
-      memorySessions.push(newSession);
+      memoryStore.sessions.push(newSession);
+      saveMemoryStore();
       return newSession;
     }
 
@@ -47,7 +45,7 @@ export class MonitoringSession {
    */
   static async findById(id) {
     if (dbMode === 'memory') {
-      return memorySessions.find(s => s.id === id) || null;
+      return memoryStore.sessions.find(s => s.id === id) || null;
     }
 
     try {
@@ -72,7 +70,7 @@ export class MonitoringSession {
    */
   static async findActiveByUserId(userId) {
     if (dbMode === 'memory') {
-      return memorySessions.find(s => s.userId === userId && s.status === 'active') || null;
+      return memoryStore.sessions.find(s => s.userId === userId && s.status === 'active') || null;
     }
 
     try {
@@ -99,9 +97,10 @@ export class MonitoringSession {
    */
   static async updateActivity(id) {
     if (dbMode === 'memory') {
-      const session = memorySessions.find(s => s.id === id);
+      const session = memoryStore.sessions.find(s => s.id === id);
       if (!session) return null;
       session.lastActivity = new Date().toISOString();
+      saveMemoryStore();
       return session;
     }
 
@@ -128,10 +127,11 @@ export class MonitoringSession {
    */
   static async deactivate(id) {
     if (dbMode === 'memory') {
-      const session = memorySessions.find(s => s.id === id);
+      const session = memoryStore.sessions.find(s => s.id === id);
       if (!session) return null;
       session.status = 'inactive';
       session.lastActivity = new Date().toISOString();
+      saveMemoryStore();
       return session;
     }
 

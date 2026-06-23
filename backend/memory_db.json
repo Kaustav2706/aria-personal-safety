@@ -1,0 +1,134 @@
+{
+  "users": [
+    {
+      "id": "usr_b3d1yo2qy",
+      "name": "Demo User",
+      "email": "demo@gmail.com",
+      "phone": "1234567890",
+      "passwordHash": "$2a$10$N64vXXI.aItBANH1O4HU1eqGoKOoQ/dXOfDut3LonQYZ5kYMEqkDy",
+      "emergencyContacts": [],
+      "createdAt": "2026-06-23T03:56:27.570Z"
+    },
+    {
+      "id": "usr_s6ktpajg5",
+      "name": "Simulated Victim",
+      "email": "victim_108@example.com",
+      "phone": "+919988776655",
+      "passwordHash": "$2a$10$YM9iGXgu5wzGWXGYTt0Ase6fc0T9YyeIch8lexDtu7juxH2DT5SNC",
+      "emergencyContacts": [
+        {
+          "name": "Backup Contact A",
+          "phone": "+919876543210"
+        }
+      ],
+      "createdAt": "2026-06-23T04:34:06.998Z"
+    },
+    {
+      "id": "usr_0s7nwggco",
+      "name": "Simulated Victim",
+      "email": "victim_498@example.com",
+      "phone": "+919988776655",
+      "passwordHash": "$2a$10$3GmT5TEc8629xi6IHi4o0.0wP/UazOSGavSioLj3CqyEyTQ8rFmSO",
+      "emergencyContacts": [
+        {
+          "name": "Backup Contact A",
+          "phone": "+919876543210"
+        }
+      ],
+      "createdAt": "2026-06-23T04:34:38.437Z"
+    },
+    {
+      "id": "usr_10pukw6vw",
+      "name": "Simulated Victim",
+      "email": "victim_763@example.com",
+      "phone": "+919988776655",
+      "passwordHash": "$2a$10$C9frizJ74eOj7vzDa8EwrOPIILugK8OCkRmjmc8ITK.xNK5X5RO8e",
+      "emergencyContacts": [
+        {
+          "name": "Backup Contact A",
+          "phone": "+919876543210"
+        }
+      ],
+      "createdAt": "2026-06-23T04:35:45.932Z"
+    },
+    {
+      "id": "usr_4pr940eln",
+      "name": "Simulated Victim",
+      "email": "victim_553@example.com",
+      "phone": "+919988776655",
+      "passwordHash": "$2a$10$o.9MRmzLN.ml5Vf9P6mXa.rvx8QzSrNBCzCPqfBkWKArN3PDHeh36",
+      "emergencyContacts": [
+        {
+          "name": "Backup Contact A",
+          "phone": "+919876543210"
+        }
+      ],
+      "createdAt": "2026-06-23T04:36:47.446Z"
+    }
+  ],
+  "contacts": [
+    {
+      "user_id": "usr_s6ktpajg5",
+      "name": "Backup Contact A",
+      "phone": "+919876543210"
+    },
+    {
+      "user_id": "usr_0s7nwggco",
+      "name": "Backup Contact A",
+      "phone": "+919876543210"
+    },
+    {
+      "user_id": "usr_10pukw6vw",
+      "name": "Backup Contact A",
+      "phone": "+919876543210"
+    },
+    {
+      "user_id": "usr_4pr940eln",
+      "name": "Backup Contact A",
+      "phone": "+919876543210"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc_oak9hpmmp",
+      "userId": "usr_b3d1yo2qy",
+      "status": "resolved",
+      "triggerType": "manual",
+      "latitude": 0,
+      "longitude": 0,
+      "riskScore": 80,
+      "audioTranscript": "",
+      "createdAt": "2026-06-23T04:38:21.636Z"
+    },
+    {
+      "id": "inc_u4d73xx18",
+      "userId": "usr_b3d1yo2qy",
+      "status": "resolved",
+      "triggerType": "manual",
+      "latitude": 22.4803,
+      "longitude": 88.403,
+      "riskScore": 79,
+      "audioTranscript": "",
+      "createdAt": "2026-06-23T04:38:24.744Z"
+    }
+  ],
+  "locationHistory": [
+    {
+      "id": 1,
+      "incidentId": "inc_oak9hpmmp",
+      "latitude": 0,
+      "longitude": 0,
+      "riskScore": 80,
+      "timestamp": "2026-06-23T04:38:21.636Z"
+    },
+    {
+      "id": 2,
+      "incidentId": "inc_u4d73xx18",
+      "latitude": 22.4803,
+      "longitude": 88.403,
+      "riskScore": 79,
+      "timestamp": "2026-06-23T04:38:24.744Z"
+    }
+  ],
+  "sessions": []
+}

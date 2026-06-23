@@ -118,12 +118,16 @@ async function testE2E() {
     console.log('\n➡️ STAGE 5: Generating PDF incident dossier report...');
     const reportRes = await axios.post(`${BACKEND_URL}/incidents/report/generate`, {
       incidentId
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
     });
     console.log(`   [SUCCESS] PDF dossier compiled. Download Link: ${reportRes.data.reportUrl}`);
 
     // Stage 6: Incident Resolution
     console.log('\n➡️ STAGE 6: Dispatcher resolves active safety incident...');
-    const resolveRes = await axios.put(`${BACKEND_URL}/incidents/${incidentId}/resolve`);
+    const resolveRes = await axios.put(`${BACKEND_URL}/incidents/${incidentId}/resolve`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     console.log(`   [SUCCESS] Incident status closed: Status is now ${resolveRes.data.incident.status}`);
 
     // Wait 1.5 seconds for socket broadcasts to log

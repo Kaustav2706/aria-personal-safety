@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js",
+    "dev": "nodemon --ignore memory_db.json --ignore uploads/ src/app.js",
     "db:seed": "node src/scripts/seed.js"
   },
   "dependencies": {

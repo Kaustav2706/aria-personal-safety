@@ -47,6 +47,59 @@ export default function MonitoringView({
   const animationFrameRef = useRef<number | null>(null);
   const lastBackendConfidenceRef = useRef<number>(15);
 
+  const [riskHistory, setRiskHistory] = useState<number[]>([15, 35, 20, 48, 18, 38, 22, 45, 28, 35]);
+
+  // Update last history element with latest risk score from backend
+  useEffect(() => {
+    setRiskHistory((prev) => {
+      const next = [...prev];
+      if (next.length > 0) {
+        next[next.length - 1] = riskScore;
+      }
+      return next;
+    });
+  }, [riskScore]);
+
+  // Periodic sliding wave effect for dynamic curve animation (much more prominent waves)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRiskHistory((prev) => {
+        const base = isActive ? riskScore : 30;
+        const noiseRange = isActive ? 30 : 40;
+        const noise = Math.floor(Math.random() * noiseRange) - (noiseRange / 2);
+        const nextVal = Math.max(8, Math.min(92, base + noise));
+        return [...prev.slice(1), nextVal];
+      });
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [isActive, riskScore]);
+
+  // Generate cubic bezier curvy SVG path (scaled to fill more vertical space)
+  const getCurvePath = (data: number[]) => {
+    if (data.length === 0) return '';
+    const width = 400;
+    const step = width / (data.length - 1);
+    
+    const coords = data.map((val, idx) => ({
+      x: idx * step,
+      y: 80 - (val / 100) * 70
+    }));
+    
+    let path = `M ${coords[0].x},${coords[0].y}`;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const curr = coords[i];
+      const next = coords[i + 1];
+      const cpX1 = curr.x + step / 2;
+      const cpY1 = curr.y;
+      const cpX2 = next.x - step / 2;
+      const cpY2 = next.y;
+      
+      path += ` C ${cpX1},${cpY1} ${cpX2},${cpY2} ${next.x},${next.y}`;
+    }
+    return path;
+  };
+
   // GPS state
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
 
@@ -521,22 +574,33 @@ export default function MonitoringView({
               
               {/* Area fill */}
               <path 
-                d={`M0,${100 - riskScore} Q50,${100 - riskScore * 0.8} 100,${100 - riskScore * 0.9} T200,${100 - riskScore} T300,${100 - riskScore * 0.85} T400,${100 - riskScore * 0.95} L400,100 L0,100 Z`}
+                d={`${getCurvePath(riskHistory)} L 400,100 L 0,100 Z`}
                 fill="url(#chartGradMonitor)" 
               />
               {/* Line */}
               <path 
-                d={`M0,${100 - riskScore} Q50,${100 - riskScore * 0.8} 100,${100 - riskScore * 0.9} T200,${100 - riskScore} T300,${100 - riskScore * 0.85} T400,${100 - riskScore * 0.95}`}
+                d={getCurvePath(riskHistory)}
                 fill="none" 
                 stroke={distressDetected ? '#ff544c' : '#72d4ef'}
                 strokeWidth="2.5" 
                 strokeLinecap="round"
               />
               
-              {/* Highlight score dot */}
-              <circle cx="200" cy={100 - riskScore} r="4" fill={distressDetected ? '#ff544c' : '#72d4ef'} />
+              {/* Highlight score dot at the latest point on the right */}
+              <circle 
+                cx="400" 
+                cy={80 - (riskHistory[riskHistory.length - 1] / 100) * 70} 
+                r="4.5" 
+                fill={distressDetected ? '#ff544c' : '#72d4ef'} 
+              />
               {isActive && (
-                <circle cx="200" cy={100 - riskScore} r="8" fill={distressDetected ? '#ff544c' : '#72d4ef'} className="animate-ping opacity-30" />
+                <circle 
+                  cx="400" 
+                  cy={80 - (riskHistory[riskHistory.length - 1] / 100) * 70} 
+                  r="9" 
+                  fill={distressDetected ? '#ff544c' : '#72d4ef'} 
+                  className="animate-ping opacity-30" 
+                />
               )}
             </svg>
           </div>

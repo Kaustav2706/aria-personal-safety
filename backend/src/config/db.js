@@ -1,7 +1,48 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_FILE_PATH = path.join(__dirname, '../../memory_db.json');
+
+// Centralized persistent memory cache fallback storage
+export const memoryStore = {
+  users: [],
+  contacts: [],
+  incidents: [],
+  locationHistory: [],
+  sessions: []
+};
+
+export function saveMemoryStore() {
+  try {
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(memoryStore, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('⚠️ [MEMORY DB] Failed to save memory store to file:', err.message);
+  }
+}
+
+export function loadMemoryStore() {
+  try {
+    if (fs.existsSync(DB_FILE_PATH)) {
+      const data = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+      const parsed = JSON.parse(data);
+      memoryStore.users = parsed.users || [];
+      memoryStore.contacts = parsed.contacts || [];
+      memoryStore.incidents = parsed.incidents || [];
+      memoryStore.locationHistory = parsed.locationHistory || [];
+      memoryStore.sessions = parsed.sessions || [];
+      console.log('💚 [MEMORY DB] Successfully loaded persistent local data.');
+    }
+  } catch (err) {
+    console.error('⚠️ [MEMORY DB] Failed to load memory store from file:', err.message);
+  }
+}
 
 // Validate startup environment variables
 if (!process.env.JWT_SECRET) {
@@ -88,5 +129,6 @@ export async function initializeDatabase() {
   } catch (error) {
     console.warn('\n⚠️ [POSTGRESQL DB] Connection/Migration failed. Switching to IN-MEMORY FALLBACK ADAPTER.');
     dbMode = 'memory';
+    loadMemoryStore();
   }
 }

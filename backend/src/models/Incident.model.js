@@ -1,8 +1,4 @@
-import { pool, dbMode } from '../config/db.js';
-
-// Memory cache fallback storage
-const memoryIncidents = [];
-const memoryLocationHistory = [];
+import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class Incident {
   static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '' }) {
@@ -21,9 +17,9 @@ export class Incident {
         createdAt: new Date().toISOString()
       };
       
-      memoryIncidents.push(newIncident);
-      memoryLocationHistory.push({
-        id: memoryLocationHistory.length + 1,
+      memoryStore.incidents.push(newIncident);
+      memoryStore.locationHistory.push({
+        id: memoryStore.locationHistory.length + 1,
         incidentId,
         latitude: parseFloat(latitude) || 0.0,
         longitude: parseFloat(longitude) || 0.0,
@@ -31,6 +27,7 @@ export class Incident {
         timestamp: new Date().toISOString()
       });
 
+      saveMemoryStore();
       return newIncident;
     }
 
@@ -80,7 +77,7 @@ export class Incident {
 
   static async findById(id) {
     if (dbMode === 'memory') {
-      return memoryIncidents.find(i => i.id === id) || null;
+      return memoryStore.incidents.find(i => i.id === id) || null;
     }
 
     try {
@@ -102,7 +99,7 @@ export class Incident {
 
   static async findAll() {
     if (dbMode === 'memory') {
-      return [...memoryIncidents].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return [...memoryStore.incidents].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
 
     try {
@@ -123,7 +120,7 @@ export class Incident {
 
   static async findByUserId(userId) {
     if (dbMode === 'memory') {
-      return memoryIncidents
+      return memoryStore.incidents
         .filter(i => i.userId === userId)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
@@ -147,10 +144,10 @@ export class Incident {
 
   static async update(id, updates) {
     if (dbMode === 'memory') {
-      const idx = memoryIncidents.findIndex(i => i.id === id);
+      const idx = memoryStore.incidents.findIndex(i => i.id === id);
       if (idx === -1) return null;
 
-      const current = memoryIncidents[idx];
+      const current = memoryStore.incidents[idx];
       if (updates.status) current.status = updates.status;
       if (updates.latitude !== undefined) current.latitude = parseFloat(updates.latitude);
       if (updates.longitude !== undefined) current.longitude = parseFloat(updates.longitude);
@@ -158,8 +155,8 @@ export class Incident {
       if (updates.audioTranscript) current.audioTranscript = updates.audioTranscript;
 
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
-        memoryLocationHistory.push({
-          id: memoryLocationHistory.length + 1,
+        memoryStore.locationHistory.push({
+          id: memoryStore.locationHistory.length + 1,
           incidentId: id,
           latitude: current.latitude,
           longitude: current.longitude,
@@ -168,6 +165,7 @@ export class Incident {
         });
       }
 
+      saveMemoryStore();
       return current;
     }
 
@@ -243,14 +241,15 @@ export class Incident {
   static async addLocationHistory(incidentId, latitude, longitude, riskScore) {
     if (dbMode === 'memory') {
       const row = {
-        id: memoryLocationHistory.length + 1,
+        id: memoryStore.locationHistory.length + 1,
         incidentId,
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         riskScore: parseInt(riskScore),
         timestamp: new Date().toISOString()
       };
-      memoryLocationHistory.push(row);
+      memoryStore.locationHistory.push(row);
+      saveMemoryStore();
       return row;
     }
 
@@ -270,7 +269,7 @@ export class Incident {
 
   static async getLocationHistory(incidentId) {
     if (dbMode === 'memory') {
-      return memoryLocationHistory.filter(h => h.incidentId === incidentId);
+      return memoryStore.locationHistory.filter(h => h.incidentId === incidentId);
     }
 
     try {
@@ -290,16 +289,17 @@ export class Incident {
 
   static async delete(id) {
     if (dbMode === 'memory') {
-      const idx = memoryIncidents.findIndex(i => i.id === id);
+      const idx = memoryStore.incidents.findIndex(i => i.id === id);
       if (idx === -1) return false;
-      memoryIncidents.splice(idx, 1);
+      memoryStore.incidents.splice(idx, 1);
       
       // Clear location history for this incident
-      for (let i = memoryLocationHistory.length - 1; i >= 0; i--) {
-        if (memoryLocationHistory[i].incidentId === id) {
-          memoryLocationHistory.splice(i, 1);
+      for (let i = memoryStore.locationHistory.length - 1; i >= 0; i--) {
+        if (memoryStore.locationHistory[i].incidentId === id) {
+          memoryStore.locationHistory.splice(i, 1);
         }
       }
+      saveMemoryStore();
       return true;
     }
 

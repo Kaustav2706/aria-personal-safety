@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { IncidentItem } from '../types';
-import { ArrowLeft, Play, Pause, Download, Share2, MapPin, BarChart2, ShieldCheck, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, Share2, MapPin, ShieldCheck, CheckCircle, Loader2 } from 'lucide-react';
 import { incidentService, reportService } from '../services/api';
 import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
@@ -54,15 +54,12 @@ interface IncidentDetailsProps {
 }
 
 export default function IncidentDetailsView({ incident, onBack }: IncidentDetailsProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playSeconds, setPlaySeconds] = useState(12);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [reportError, setReportError] = useState('');
 
   // Load full incident details from backend
   const [detailLoading, setDetailLoading] = useState(true);
-  const [fullTranscript, setFullTranscript] = useState(incident.audioSnippet || '');
   const [locationHistory, setLocationHistory] = useState<any[]>([]);
 
   useEffect(() => {
@@ -70,9 +67,6 @@ export default function IncidentDetailsView({ incident, onBack }: IncidentDetail
       try {
         const res = await incidentService.getById(incident.id);
         if (res.data.success) {
-          if (res.data.incident?.audioTranscript) {
-            setFullTranscript(res.data.incident.audioTranscript);
-          }
           if (res.data.locationHistory) {
             setLocationHistory(res.data.locationHistory);
           }
@@ -85,32 +79,6 @@ export default function IncidentDetailsView({ incident, onBack }: IncidentDetail
     };
     loadDetails();
   }, [incident.id]);
-
-  useEffect(() => {
-    let timer: any = null;
-    if (isPlaying) {
-      timer = setInterval(() => {
-        setPlaySeconds((prev) => {
-          if (prev >= 105) {
-            setIsPlaying(false);
-            return 105;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isPlaying]);
-
-  const formatTime = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const rem = secs % 60;
-    return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
-  };
-
-  const currentPercent = (playSeconds / 105) * 100;
 
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
@@ -246,54 +214,7 @@ export default function IncidentDetailsView({ incident, onBack }: IncidentDetail
         </div>
       </section>
 
-      {/* Audio Transcript player snippet card */}
-      <section className="glass-card p-5 rounded-2xl flex flex-col gap-4 border border-white/5 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-on-surface">
-            {/* Pulsing indicator visual lines */}
-            <BarChart2 className={`w-5 h-5 text-secondary ${isPlaying ? 'animate-bounce' : ''}`} />
-            <h3 className="font-bold text-title-md">Audio Transcript</h3>
-          </div>
-          <button 
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="text-secondary font-bold text-xs uppercase hover:underline transition-all"
-          >
-            {isPlaying ? 'Pause Feed' : 'Synthesize Audio'}
-          </button>
-        </div>
 
-        {/* Highlight quote Transcript box */}
-        <div className="bg-surface-container-lowest/80 rounded-xl p-4 border border-white/5 italic text-on-surface-variant text-body-sm leading-relaxed relative">
-          {fullTranscript || 'No audio transcript available.'}
-          
-          <button 
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="absolute right-4 bottom-4 w-9 h-9 rounded-full bg-secondary text-on-secondary flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer"
-          >
-            {isPlaying ? (
-              <span className="font-sans text-[11px] font-bold">||</span>
-            ) : (
-              <span className="pl-0.5 text-lg font-bold">▶</span>
-            )}
-          </button>
-        </div>
-
-        {/* Audiotrack Slider indicator status */}
-        <div className="flex items-center gap-3 mt-1">
-          <div 
-            className="flex-1 h-1 bg-surface-container-highest rounded-full overflow-hidden cursor-pointer" 
-            onClick={() => setPlaySeconds(60)}
-          >
-            <div 
-              className="h-full bg-secondary relative transition-all duration-300"
-              style={{ width: `${currentPercent}%` }} 
-            />
-          </div>
-          <span className="font-mono text-[10px] text-on-surface-variant font-bold">
-            {formatTime(playSeconds)} / {incident.recordingDuration || '1:45'}
-          </span>
-        </div>
-      </section>
 
       {/* Timelines of events lookback list */}
       <section className="flex flex-col gap-5">

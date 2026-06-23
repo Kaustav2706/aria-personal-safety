@@ -1,0 +1,6 @@
+{
+  "ignore": [
+    "memory_db.json",
+    "uploads/**"
+  ]
+}

@@ -180,7 +180,11 @@ export default function App() {
     const unsubCreated = onIncidentCreated((data: any) => {
       console.log('[SOCKET] Incident created:', data);
       const newItem = backendToIncidentItem(data);
-      setIncidents((prev) => [newItem, ...prev]);
+      setIncidents((prev) => {
+        const exists = prev.some(i => i.id === newItem.id);
+        if (exists) return prev;
+        return [newItem, ...prev];
+      });
       setActiveNotifications((prev) => [
         `🚨 New incident detected: ${data.id}`,
         ...prev,

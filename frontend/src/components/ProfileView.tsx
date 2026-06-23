@@ -273,7 +273,7 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout }: Prof
                   <span className="font-semibold text-on-surface text-[15px]">Language Preference</span>
                 </div>
                 <span className="text-xs text-secondary font-black uppercase tracking-wider px-2.5 py-1 bg-secondary/10 border border-secondary/20 rounded-full select-none">
-                  English Only
+                  English
                 </span>
               </div>
             </div>

@@ -1,8 +1,4 @@
-import { pool, dbMode } from '../config/db.js';
-
-// Memory cache fallback storage
-const memoryUsers = [];
-const memoryContacts = [];
+import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class User {
   static async create({ name, email, phone, passwordHash, emergencyContacts = [] }) {
@@ -18,12 +14,13 @@ export class User {
         emergencyContacts: emergencyContacts.map(c => ({ name: c.name, phone: c.phone })),
         createdAt: new Date().toISOString()
       };
-      memoryUsers.push(newUser);
+      memoryStore.users.push(newUser);
       
       emergencyContacts.forEach(contact => {
-        memoryContacts.push({ user_id: userId, name: contact.name, phone: contact.phone });
+        memoryStore.contacts.push({ user_id: userId, name: contact.name, phone: contact.phone });
       });
 
+      saveMemoryStore();
       return newUser;
     }
 
@@ -68,10 +65,10 @@ export class User {
 
   static async findByEmail(email) {
     if (dbMode === 'memory') {
-      const user = memoryUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+      const user = memoryStore.users.find(u => u.email.toLowerCase() === email.toLowerCase());
       if (!user) return null;
       
-      const contacts = memoryContacts.filter(c => c.user_id === user.id);
+      const contacts = memoryStore.contacts.filter(c => c.user_id === user.id);
       return {
         ...user,
         emergencyContacts: contacts.map(c => ({ name: c.name, phone: c.phone }))
@@ -102,10 +99,10 @@ export class User {
 
   static async findById(id) {
     if (dbMode === 'memory') {
-      const user = memoryUsers.find(u => u.id === id);
+      const user = memoryStore.users.find(u => u.id === id);
       if (!user) return null;
 
-      const contacts = memoryContacts.filter(c => c.user_id === user.id);
+      const contacts = memoryStore.contacts.filter(c => c.user_id === user.id);
       return {
         ...user,
         emergencyContacts: contacts.map(c => ({ name: c.name, phone: c.phone }))
@@ -136,27 +133,28 @@ export class User {
 
   static async update(id, updates) {
     if (dbMode === 'memory') {
-      const idx = memoryUsers.findIndex(u => u.id === id);
+      const idx = memoryStore.users.findIndex(u => u.id === id);
       if (idx === -1) return null;
 
-      if (updates.name) memoryUsers[idx].name = updates.name;
-      if (updates.phone) memoryUsers[idx].phone = updates.phone;
+      if (updates.name) memoryStore.users[idx].name = updates.name;
+      if (updates.phone) memoryStore.users[idx].phone = updates.phone;
       
       if (updates.emergencyContacts) {
         // Delete contacts
-        for (let i = memoryContacts.length - 1; i >= 0; i--) {
-          if (memoryContacts[i].user_id === id) {
-            memoryContacts.splice(i, 1);
+        for (let i = memoryStore.contacts.length - 1; i >= 0; i--) {
+          if (memoryStore.contacts[i].user_id === id) {
+            memoryStore.contacts.splice(i, 1);
           }
         }
         // Insert contacts
         updates.emergencyContacts.forEach(contact => {
-          memoryContacts.push({ user_id: id, name: contact.name, phone: contact.phone });
+          memoryStore.contacts.push({ user_id: id, name: contact.name, phone: contact.phone });
         });
-        memoryUsers[idx].emergencyContacts = updates.emergencyContacts.map(c => ({ name: c.name, phone: c.phone }));
+        memoryStore.users[idx].emergencyContacts = updates.emergencyContacts.map(c => ({ name: c.name, phone: c.phone }));
       }
 
-      return memoryUsers[idx];
+      saveMemoryStore();
+      return memoryStore.users[idx];
     }
 
     const client = await pool.connect();
