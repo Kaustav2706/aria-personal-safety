@@ -1,4 +1,4 @@
-# ARIA: AI Real-time Incident Assistant
+# ARIA: AI Real-time Incident Assistant. 
 
 ARIA (AI Real-time Incident Assistant) is a production-quality, hackathon-ready monorepo designed to secure public and women's safety through AI, real-time GPS streaming, and an emergency response dashboard.
 
