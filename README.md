@@ -154,3 +154,4 @@ Personal safety apps are common; real-time, AI-analyzed, responder-ready intelli
 📬 Contact
 For questions, demos, or collaboration inquiries, please reach out via the repository's issues page or the contact details provided in our submission.
 
+
