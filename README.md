@@ -157,7 +157,15 @@ VITE_POLICE_API_KEY
 | Database | Neon PostgreSQL |
  
 **Live backend:** `https://aria-backend-2e96.onrender.com`
+
+ ## Live Demo
  
+### User Application
+https://aria-personal-safety.vercel.app/
+ 
+### Police Dashboard
+https://aria-personal-safety-z6uc.vercel.app/
+
 **Health checks:**
 ```
 GET /health
