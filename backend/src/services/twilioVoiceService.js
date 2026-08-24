@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+﻿import dotenv from 'dotenv';
 import twilio from 'twilio';
 
 dotenv.config();
@@ -19,7 +19,9 @@ export class TwilioVoiceService {
    */
   static async makeEmergencyCall(phoneNumber, user, incident) {
     console.log(`[TwilioVoiceService] Preparing emergency voice call...`);
-    console.log(`[TwilioVoiceService] Recipient: ${phoneNumber}`);
+
+    //1. fixed, logs only last 4 digits of the phone number
+    console.log(`[TwilioVoiceService] Recipient: ***${phoneNumber.slice(-4)}`);
     console.log(`[TwilioVoiceService] User: ${user.name} (ID: ${user.id})`);
     console.log(`[TwilioVoiceService] Incident ID: ${incident.id} (Risk: ${incident.riskScore}%)`);
 
@@ -29,15 +31,18 @@ export class TwilioVoiceService {
     const twimlContent = `<Response><Say voice="alice" language="en-US">${speakMessage}</Say></Response>`;
 
     try {
-      console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ${phoneNumber}`);
-      
+
+      //2. fixed, logs only last 4 digits of the phone number
+      console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ***${phoneNumber.slice(-4)}`);
+
       const call = await client.calls.create({
         twiml: twimlContent,
         to: phoneNumber,
         from: twilioPhoneNumber
       });
 
-      console.log(`[TwilioVoiceService] Voice call successfully initiated to ${phoneNumber}`);
+      //3. fixed, logs only last 4 digits of the phone number
+      console.log(`[TwilioVoiceService] Voice call successfully initiated to ***${phoneNumber.slice(-4)}`);
       console.log(`[TwilioVoiceService] Twilio Call SID: ${call.sid}`);
       console.log(`[TwilioVoiceService] Call Status: ${call.status}`);
 
@@ -47,7 +52,9 @@ export class TwilioVoiceService {
         status: call.status
       };
     } catch (error) {
-      console.error(`[TwilioVoiceService] Emergency voice call to ${phoneNumber} failed:`);
+
+      //4. fixed, logs only last 4 digits of the phone number
+      console.error(`[TwilioVoiceService] Emergency voice call to ***${phoneNumber.slice(-4)} failed:`);
       console.error(`[TwilioVoiceService] Twilio error code: ${error.code || 'N/A'}`);
       console.error(`[TwilioVoiceService] Twilio error message: ${error.message}`);
 
@@ -61,3 +68,4 @@ export class TwilioVoiceService {
 }
 
 export default TwilioVoiceService;
+
