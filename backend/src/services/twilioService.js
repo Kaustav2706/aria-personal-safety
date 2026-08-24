@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+﻿import dotenv from 'dotenv';
 import twilio from 'twilio';
 
 dotenv.config();
@@ -33,17 +33,19 @@ export class TwilioService {
     for (const recipient of recipients) {
       const phone = recipient.phone;
       const name = recipient.name || 'Emergency Contact';
-      
+
       try {
-        console.log(`[TwilioService] Sending SMS to recipient: ${name} (${phone})`);
-        
+        //1. fixed, logs only last 4 digits of the phone number
+        console.log(`[TwilioService] Sending SMS to recipient: ${name} (***${phone.slice(-4)})`);
+
         const response = await client.messages.create({
           body: message,
           from: twilioPhoneNumber,
           to: phone
         });
 
-        console.log(`[TwilioService] SMS recipient: ${name} (${phone})`);
+        //2. fixed, logs only last 4 digits of the phone number
+        console.log(`[TwilioService] SMS recipient: ${name} (***${phone.slice(-4)})`);
         console.log(`[TwilioService] Twilio Message SID: ${response.sid}`);
         console.log(`[TwilioService] Delivery request status: ${response.status}`);
 
@@ -55,7 +57,9 @@ export class TwilioService {
           status: response.status
         });
       } catch (error) {
-        console.error(`[TwilioService] Failed to send SMS to ${name} (${phone})`);
+
+        //3. fixed, logs only last 4 digits of the phone number
+        console.error(`[TwilioService] Failed to send SMS to ${name} (***${phone.slice(-4)})`);
         console.error(`[TwilioService] Twilio error code: ${error.code || 'N/A'}`);
         console.error(`[TwilioService] Twilio error message: ${error.message}`);
 
@@ -80,3 +84,4 @@ export class TwilioService {
     };
   }
 }
+
