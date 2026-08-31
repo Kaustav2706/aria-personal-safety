@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { User } from '../models/User.model.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export const register = asyncHandler(async (req, res) => {
   const { name, email, phone, password, emergencyContacts } = req.body;
