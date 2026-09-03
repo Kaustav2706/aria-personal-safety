@@ -59,6 +59,16 @@ export function setupLiveTracking(io) {
       console.log(`[SOCKET.IO] Location update received for Incident: ${incidentId} -> Lat: ${latitude}, Lon: ${longitude}`);
 
       try {
+        // Verify ownership (BOLA Fix)
+        const incident = await Incident.findById(incidentId);
+        if (!incident) {
+          if (callback) callback({ success: false, message: 'Incident record not found', error: 'Not Found' });
+          return;
+        }
+        if (!data.userId || incident.userId !== data.userId) {
+          if (callback) callback({ success: false, message: 'Access denied. You do not own this incident.', error: 'Forbidden' });
+          return;
+        }
         // Save coordinate checkpoint directly to PostgreSQL location_history table
         await Incident.addLocationHistory(
           incidentId, 

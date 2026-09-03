@@ -248,16 +248,28 @@ export const generateReport = asyncHandler(async (req, res) => {
 });
 
 export const deleteIncident = asyncHandler(async (req, res) => {
+  const userId = req.userId;
   const { id } = req.params;
-  const deleted = await Incident.delete(id);
 
-  if (!deleted) {
+  const incident = await Incident.findById(id);
+  if (!incident) {
     return res.status(404).json({
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
     });
   }
+
+  // Verify ownership — prevent BOLA
+  if (incident.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
+    });
+  }
+
+  const deleted = await Incident.delete(id);
 
   return res.status(200).json({
     success: true,
