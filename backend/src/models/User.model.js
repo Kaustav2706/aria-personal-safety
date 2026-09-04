@@ -2,7 +2,9 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class User {
   static async create({ name, email, phone, passwordHash, emergencyContacts = [] }) {
-    const userId = `usr_${Math.random().toString(36).substr(2, 9)}`;
+
+    const crypto = require('crypto');
+    const userId = crypto.randomUUID();
 
     if (dbMode === 'memory') {
       const newUser = {
@@ -15,7 +17,7 @@ export class User {
         createdAt: new Date().toISOString()
       };
       memoryStore.users.push(newUser);
-      
+
       emergencyContacts.forEach(contact => {
         memoryStore.contacts.push({ user_id: userId, name: contact.name, phone: contact.phone });
       });
@@ -28,7 +30,7 @@ export class User {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      
+
       const insertUserQuery = `
         INSERT INTO users (id, name, email, phone, password_hash)
         VALUES ($1, $2, $3, $4, $5)
@@ -67,7 +69,7 @@ export class User {
     if (dbMode === 'memory') {
       const user = memoryStore.users.find(u => u.email.toLowerCase() === email.toLowerCase());
       if (!user) return null;
-      
+
       const contacts = memoryStore.contacts.filter(c => c.user_id === user.id);
       return {
         ...user,
@@ -78,10 +80,10 @@ export class User {
     try {
       const userRes = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
       if (userRes.rows.length === 0) return null;
-      
+
       const user = userRes.rows[0];
       const contactsRes = await pool.query('SELECT name, phone FROM emergency_contacts WHERE user_id = $1', [user.id]);
-      
+
       return {
         id: user.id,
         name: user.name,
@@ -138,7 +140,7 @@ export class User {
 
       if (updates.name) memoryStore.users[idx].name = updates.name;
       if (updates.phone) memoryStore.users[idx].phone = updates.phone;
-      
+
       if (updates.emergencyContacts) {
         // Delete contacts
         for (let i = memoryStore.contacts.length - 1; i >= 0; i--) {
@@ -192,7 +194,7 @@ export class User {
 
       if (updates.emergencyContacts) {
         await client.query('DELETE FROM emergency_contacts WHERE user_id = $1', [id]);
-        
+
         const contacts = [];
         for (const contact of updates.emergencyContacts) {
           const insertContactQuery = `

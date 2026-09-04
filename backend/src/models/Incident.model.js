@@ -2,7 +2,10 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class Incident {
   static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '' }) {
-    const incidentId = `inc_${Math.random().toString(36).substr(2, 9)}`;
+
+
+    const crypto = require('crypto');
+    const incidentId = crypto.randomUUID();
 
     if (dbMode === 'memory') {
       const newIncident = {
@@ -16,7 +19,7 @@ export class Incident {
         audioTranscript,
         createdAt: new Date().toISOString()
       };
-      
+
       memoryStore.incidents.push(newIncident);
       memoryStore.locationHistory.push({
         id: memoryStore.locationHistory.length + 1,
@@ -41,15 +44,15 @@ export class Incident {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", created_at as "createdAt"
       `;
-      
+
       const res = await client.query(insertQuery, [
-        incidentId, 
-        userId, 
-        status, 
-        triggerType, 
-        parseFloat(latitude) || 0.0, 
-        parseFloat(longitude) || 0.0, 
-        parseInt(riskScore) || 0, 
+        incidentId,
+        userId,
+        status,
+        triggerType,
+        parseFloat(latitude) || 0.0,
+        parseFloat(longitude) || 0.0,
+        parseInt(riskScore) || 0,
         audioTranscript
       ]);
       const incident = res.rows[0];
@@ -292,7 +295,7 @@ export class Incident {
       const idx = memoryStore.incidents.findIndex(i => i.id === id);
       if (idx === -1) return false;
       memoryStore.incidents.splice(idx, 1);
-      
+
       // Clear location history for this incident
       for (let i = memoryStore.locationHistory.length - 1; i >= 0; i--) {
         if (memoryStore.locationHistory[i].incidentId === id) {
@@ -307,13 +310,13 @@ export class Incident {
     try {
       await client.query('BEGIN');
       await client.query('DELETE FROM location_history WHERE incident_id = $1', [id]);
-      
+
       try {
         await client.query('DELETE FROM reports WHERE incident_id = $1', [id]);
       } catch (err) {
         // Table reports might not exist or already be cascade deleted
       }
-      
+
       const res = await client.query('DELETE FROM incidents WHERE id = $1', [id]);
       await client.query('COMMIT');
       return res.rowCount > 0;
