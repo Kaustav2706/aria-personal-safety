@@ -9,6 +9,11 @@ from whisper_detector import WhisperDetector
 from tone_classifier import ToneClassifier
 from context_scorer import ContextScorer
 
+#gets AI_ENGINE_SECRET
+AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET")
+if not AI_ENGINE_SECRET:
+    raise RuntimeError("AI_ENGINE_SECRET is not set. Refusing to start.")
+
 app = FastAPI(
     title="ARIA AI Engine",
     description="Real-time audio processing & context risk assessment service.",
@@ -40,12 +45,18 @@ async def analyze_incident_audio(
     longitude: Optional[float] = Form(0.0),
     timestamp: Optional[str] = Form(None),
     is_isolated: Optional[bool] = Form(False),
-    motion_anomaly: Optional[bool] = Form(False)
+    motion_anomaly: Optional[bool] = Form(False),
+    x_internal_secret: Optional[str] = Header(None)
 ):
     """
     Analyzes uploaded audio file using Whisper transcription and acoustics evaluation,
     returning threat assessment ratings.
     """
+
+    #checks the AI_ENGINE_SECRET
+    if x_internal_secret != AI_ENGINE_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     print(f"\n[AI ENGINE] Processing request for file: {file.filename}")
     print(f"[AI ENGINE] GPS Location: Lat {latitude}, Lng {longitude}")
     print(f"[AI ENGINE] Timestamp: {timestamp} | Isolated Area: {is_isolated}")

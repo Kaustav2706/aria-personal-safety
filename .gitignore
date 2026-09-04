@@ -12,6 +12,8 @@ dist/
 build/
 .next/
 .out/
+memory_db.json
+backend/memory_db.json
 
 # ==========================================
 # Python
