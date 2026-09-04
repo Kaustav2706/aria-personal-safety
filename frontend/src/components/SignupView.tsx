@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { authService } from '../services/api';
-import { setToken, setUser } from '../services/auth';
+import { setRefreshToken, setToken, setUser } from '../services/auth';
 
 interface SignupProps {
   onRegisterComplete: () => void;
@@ -44,6 +44,7 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
 
       if (res.data.success) {
         setToken(res.data.token);
+        setRefreshToken(res.data.refreshToken);
         setUser(res.data.user);
         setRegisterSuccess(true);
 

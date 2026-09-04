@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { AuthSession } from '../models/AuthSession.model.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -22,8 +23,25 @@ export function authenticateToken(req, res, next) {
         error: err.message
       });
     }
-    req.userId = decoded.userId;
-    next();
+    if (!decoded.sessionId) {
+      req.userId = decoded.userId;
+      return next();
+    }
+
+    AuthSession.findActiveById(decoded.sessionId)
+      .then(session => {
+        if (!session || session.userId !== decoded.userId) {
+          return res.status(401).json({
+            success: false,
+            message: 'Session expired or invalid token',
+            error: 'Revoked session'
+          });
+        }
+        req.userId = decoded.userId;
+        req.sessionId = decoded.sessionId;
+        next();
+      })
+      .catch(next);
   });
 }
 

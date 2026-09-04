@@ -5,50 +5,60 @@
  */
 
 import axios, { type AxiosError } from 'axios';
-import { getToken, logout } from './auth';
+import { getRefreshToken, getToken, logout, setRefreshToken, setToken } from './auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-// ── Axios instance ──────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
 });
 
-// ── Request interceptor: attach JWT ─────────────────────────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = getToken();
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = 'Bearer ' + token;
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// ── Response interceptor: handle 401 ────────────────────────────────────────
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    const originalRequest = error.config as typeof error.config & { _retry?: boolean } | undefined;
+    const isAuthRequest = originalRequest?.url?.includes('/api/auth/');
+    const canRefresh = !!getRefreshToken() && !!originalRequest && !isAuthRequest && !originalRequest._retry;
+
+    if ((error.response?.status === 401 || error.response?.status === 403) && canRefresh) {
+      originalRequest._retry = true;
+      return api.post('/api/auth/refresh', { refreshToken: getRefreshToken() })
+        .then((response) => {
+          setToken(response.data.token);
+          setRefreshToken(response.data.refreshToken);
+          originalRequest.headers.Authorization = 'Bearer ' + response.data.token;
+          return api(originalRequest);
+        })
+        .catch((refreshError) => {
+          logout();
+          window.dispatchEvent(new CustomEvent('aria:unauthorized'));
+          return Promise.reject(refreshError);
+        });
+    }
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
       logout();
-      // Dispatch a custom event so App.tsx can redirect to login
       window.dispatchEvent(new CustomEvent('aria:unauthorized'));
     }
     return Promise.reject(error);
   }
 );
 
-// ═════════════════════════════════════════════════════════════════════════════
-// AUTH APIs
-// ═════════════════════════════════════════════════════════════════════════════
 export const authService = {
-  /** POST /api/auth/login */
   login: (email: string, password: string) =>
     api.post('/api/auth/login', { email, password }),
-
-  /** POST /api/auth/register */
   register: (
     name: string,
     email: string,
@@ -63,73 +73,43 @@ export const authService = {
       password,
       emergencyContacts: emergencyContacts || [],
     }),
+  refresh: (refreshToken: string) =>
+    api.post('/api/auth/refresh', { refreshToken }),
+  logout: () => api.post('/api/auth/logout'),
+  logoutAll: () => api.post('/api/auth/logout-all'),
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// PROFILE APIs
-// ═════════════════════════════════════════════════════════════════════════════
 export const profileService = {
-  /** GET /api/user/profile */
   getProfile: () => api.get('/api/user/profile'),
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// MONITORING APIs
-// ═════════════════════════════════════════════════════════════════════════════
 export const monitoringService = {
-  /** POST /api/monitoring/start */
   startSession: () => api.post('/api/monitoring/start'),
-
-  /** POST /api/monitoring/chunk — multipart/form-data */
   uploadChunk: (formData: FormData) =>
     api.post('/api/monitoring/chunk', formData, {
       timeout: 15000,
     }),
-
-  /** POST /api/monitoring/stop */
   stopSession: (sessionId: string) =>
     api.post('/api/monitoring/stop', { sessionId }),
-
-  /** GET /api/monitoring/status/:sessionId */
   getStatus: (sessionId: string) =>
     api.get(`/api/monitoring/status/${sessionId}`),
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// INCIDENT APIs
-// ═════════════════════════════════════════════════════════════════════════════
 export const incidentService = {
-  /** POST /api/incidents/create — supports multipart/form-data for audio upload */
   create: (formData: FormData) =>
     api.post('/api/incidents/create', formData),
-
-  /** GET /api/incidents */
   getAll: () => api.get('/api/incidents'),
-
-  /** GET /api/incidents/:id */
   getById: (id: string) => api.get(`/api/incidents/${id}`),
-
-  /** DELETE /api/incidents/:id */
   delete: (id: string) => api.delete(`/api/incidents/${id}`),
-
-  /** PUT /api/incidents/:id/resolve */
   resolve: (id: string) => api.put(`/api/incidents/${id}/resolve`),
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// REPORT APIs
-// ═════════════════════════════════════════════════════════════════════════════
 export const reportService = {
-  /** POST /api/incidents/report/generate */
   generate: (incidentId: string) =>
     api.post('/api/incidents/report/generate', { incidentId }),
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HEALTH CHECK
-// ═════════════════════════════════════════════════════════════════════════════
 export const healthService = {
-  /** GET /health */
   check: () => api.get('/health', { timeout: 5000 }),
 };
 

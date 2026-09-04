@@ -57,3 +57,17 @@ CREATE TABLE IF NOT EXISTS monitoring_sessions (
   last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   status VARCHAR(20) DEFAULT 'active'
 );
+
+-- 7. Authentication Sessions (revocable refresh-token sessions)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id VARCHAR(100) PRIMARY KEY,
+  user_id VARCHAR(50) REFERENCES users(id) ON DELETE CASCADE,
+  refresh_token_hash VARCHAR(64) UNIQUE NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  last_used_at TIMESTAMP,
+  revoked_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS auth_sessions_refresh_token_hash_idx ON auth_sessions(refresh_token_hash);

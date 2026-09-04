@@ -4,6 +4,7 @@
  */
 
 const TOKEN_KEY = 'aria_jwt_token';
+const REFRESH_TOKEN_KEY = 'aria_refresh_token';
 const USER_KEY = 'aria_user';
 
 /** Store JWT token */
@@ -19,6 +20,21 @@ export function getToken(): string | null {
 /** Remove JWT token */
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Store refresh token */
+export function setRefreshToken(token: string): void {
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+/** Retrieve refresh token */
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+/** Remove refresh token */
+export function clearRefreshToken(): void {
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
 /** Store user profile object */
@@ -50,5 +66,6 @@ export function isAuthenticated(): boolean {
 /** Full logout — clears all auth state */
 export function logout(): void {
   clearToken();
+  clearRefreshToken();
   clearUser();
 }
