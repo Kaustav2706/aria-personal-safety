@@ -9,6 +9,17 @@ const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
 const client = twilio(twilioSid, twilioToken);
 
+// Helper to mask phone numbers in logs: expose only last 4 digits
+function maskPhone(phone) {
+  try {
+    if (!phone) return '******';
+    const last4 = phone.slice(-4);
+    return '******' + last4;
+  } catch (e) {
+    return '******';
+  }
+}
+
 export class TwilioService {
   /**
    * Sends an SOS alert to all registered contacts or a fallback number.
@@ -35,8 +46,8 @@ export class TwilioService {
       const name = recipient.name || 'Emergency Contact';
 
       try {
-        //1. fixed, logs only last 4 digits of the phone number
-        console.log(`[TwilioService] Sending SMS to recipient: ${name} (***${phone.slice(-4)})`);
+        // Log masked recipient phone (only last 4 digits)
+        console.log(`[TwilioService] Sending SMS to recipient: ${name} (${maskPhone(phone)})`);
 
         const response = await client.messages.create({
           body: message,
@@ -44,8 +55,8 @@ export class TwilioService {
           to: phone
         });
 
-        //2. fixed, logs only last 4 digits of the phone number
-        console.log(`[TwilioService] SMS recipient: ${name} (***${phone.slice(-4)})`);
+        // Log masked recipient phone (only last 4 digits)
+        console.log(`[TwilioService] SMS recipient: ${name} (${maskPhone(phone)})`);
         console.log(`[TwilioService] Twilio Message SID: ${response.sid}`);
         console.log(`[TwilioService] Delivery request status: ${response.status}`);
 
@@ -58,8 +69,8 @@ export class TwilioService {
         });
       } catch (error) {
 
-        //3. fixed, logs only last 4 digits of the phone number
-        console.error(`[TwilioService] Failed to send SMS to ${name} (***${phone.slice(-4)})`);
+        // Log masked recipient phone on failure (only last 4 digits)
+        console.error(`[TwilioService] Failed to send SMS to ${name} (${maskPhone(phone)})`);
         console.error(`[TwilioService] Twilio error code: ${error.code || 'N/A'}`);
         console.error(`[TwilioService] Twilio error message: ${error.message}`);
 

@@ -69,6 +69,15 @@ export const updateLocation = asyncHandler(async (req, res) => {
     });
   }
 
+  // Verify ownership
+  if (incident.userId !== req.userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
+    });
+  }
+
   // Update incident and automatically log to location_history
   const updated = await Incident.update(incidentId, {
     latitude: parseFloat(latitude),

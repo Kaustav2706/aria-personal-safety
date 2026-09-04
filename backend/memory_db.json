@@ -64,6 +64,24 @@
         }
       ],
       "createdAt": "2026-06-23T04:36:47.446Z"
+    },
+    {
+      "id": "usr_mm2mwejqw",
+      "name": "User One",
+      "email": "user1_1788504027997@example.com",
+      "phone": "+919876543210",
+      "passwordHash": "$2a$10$jH3PxSmh7MGRay.6ZVViJOvINhB3aGe6EO/WC37ugx5YHKTBvCjaG",
+      "emergencyContacts": [],
+      "createdAt": "2026-09-04T06:40:28.333Z"
+    },
+    {
+      "id": "usr_9p823zaph",
+      "name": "User Two",
+      "email": "user2_1788504028363@example.com",
+      "phone": "+919876543211",
+      "passwordHash": "$2a$10$5Cw9rDGJgykGcn6xvHBkrOGwTev5Z.4g/Ker7epN39fzHmSLQ.aJW",
+      "emergencyContacts": [],
+      "createdAt": "2026-09-04T06:40:28.439Z"
     }
   ],
   "contacts": [
@@ -88,7 +106,36 @@
       "phone": "+919876543210"
     }
   ],
-  "incidents": [],
-  "locationHistory": [],
+  "incidents": [
+    {
+      "id": "inc_p0n5yobhz",
+      "userId": "usr_mm2mwejqw",
+      "status": "active",
+      "triggerType": "manual",
+      "latitude": 28.62,
+      "longitude": 77.21,
+      "riskScore": 85,
+      "audioTranscript": "",
+      "createdAt": "2026-09-04T06:40:28.457Z"
+    }
+  ],
+  "locationHistory": [
+    {
+      "id": 1,
+      "incidentId": "inc_p0n5yobhz",
+      "latitude": 28.6139,
+      "longitude": 77.209,
+      "riskScore": 85,
+      "timestamp": "2026-09-04T06:40:28.457Z"
+    },
+    {
+      "id": 2,
+      "incidentId": "inc_p0n5yobhz",
+      "latitude": 28.62,
+      "longitude": 77.21,
+      "riskScore": 85,
+      "timestamp": "2026-09-04T06:40:33.642Z"
+    }
+  ],
   "sessions": []
 }
