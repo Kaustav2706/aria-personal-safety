@@ -4,6 +4,7 @@ import { User } from '../models/User.model.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
+const MIN_PASSWORD_LENGTH = 8;
 
 export const register = asyncHandler(async (req, res) => {
   const { name, email, phone, password, emergencyContacts } = req.body;
@@ -12,6 +13,14 @@ export const register = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: 'Missing mandatory fields (name, email, phone, password)',
+      error: 'Invalid Request Payload'
+    });
+  }
+
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      success: false,
+      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`,
       error: 'Invalid Request Payload'
     });
   }
