@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, ArrowRight, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { authService } from '../services/api';
-import { setToken, setUser } from '../services/auth';
+import { setRefreshToken, setToken, setUser } from '../services/auth';
 
 interface LoginProps {
   onLogin: () => void;
@@ -31,6 +31,7 @@ export default function LoginView({ onLogin, onGoToSignup }: LoginProps) {
 
       if (res.data.success) {
         setToken(res.data.token);
+        setRefreshToken(res.data.refreshToken);
         setUser(res.data.user);
         onLogin();
       } else {

@@ -4,7 +4,7 @@ import { UserProfile, EmergencyContact, IncidentItem, Screen, BackendIncident } 
 
 // Services
 import { isAuthenticated, logout as authLogout, getUser, setToken, setUser, getToken } from './services/auth';
-import { profileService, incidentService, healthService } from './services/api';
+import { authService, profileService, incidentService, healthService } from './services/api';
 import { connectSocket, disconnectSocket, onIncidentCreated, onIncidentResolved } from './services/socket';
 import { getContacts, saveContacts, seedDefaultContacts, addContact as addContactLocal, removeContact as removeContactLocal } from './services/contacts';
 
@@ -378,15 +378,34 @@ export default function App() {
   };
 
   // ── Logout handler ──────────────────────────────────────────────────────
-  const handleLogout = () => {
+  const clearLocalSession = () => {
+    authLogout();
+    disconnectSocket();
+    setProfile(defaultProfile);
+    setIncidents([]);
+    setRiskScore(0);
+    setCurrentScreen('SECURE_LOGIN');
+  };
+
+  const handleLogout = async () => {
     const out = window.confirm('Logout of safe session?');
     if (out) {
-      authLogout();
-      disconnectSocket();
-      setProfile(defaultProfile);
-      setIncidents([]);
-      setRiskScore(0);
-      setCurrentScreen('SECURE_LOGIN');
+      try {
+        await authService.logout();
+      } finally {
+        clearLocalSession();
+      }
+    }
+  };
+
+  const handleLogoutAll = async () => {
+    const out = window.confirm('Sign out of all devices and sessions?');
+    if (out) {
+      try {
+        await authService.logoutAll();
+      } finally {
+        clearLocalSession();
+      }
     }
   };
 
@@ -616,6 +635,7 @@ export default function App() {
             profile={profile}
             onUpdateProfile={handleUpdateProfile}
             onLogout={handleLogout}
+            onLogoutAll={handleLogoutAll}
           />
         )}
 

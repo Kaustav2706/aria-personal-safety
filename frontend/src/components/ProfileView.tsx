@@ -7,9 +7,10 @@ interface ProfileViewProps {
   profile: UserProfile;
   onUpdateProfile: (updated: UserProfile) => void;
   onLogout: () => void;
+  onLogoutAll: () => void;
 }
 
-export default function ProfileView({ profile, onUpdateProfile, onLogout }: ProfileViewProps) {
+export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogoutAll }: ProfileViewProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadedProfile, setLoadedProfile] = useState<UserProfile>(profile);
@@ -356,6 +357,13 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout }: Prof
             >
               <LogOut className="w-5 h-5" />
               <span>Logout Session</span>
+            </button>
+            <button
+              onClick={onLogoutAll}
+              className="w-full flex items-center justify-center gap-3 py-4 rounded-xl border border-white/10 text-on-surface-variant hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer font-bold mt-3"
+            >
+              <LogOut className="w-5 h-5" />
+              <span>Sign out everywhere</span>
             </button>
 
             {/* Version label */}
