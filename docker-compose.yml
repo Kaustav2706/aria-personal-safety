@@ -25,9 +25,12 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - DATABASE_URL=postgresql://postgres:postgrespassword@postgres:5432/aria
       - AI_ENGINE_URL=http://ai-engine:8000
-      - TWILIO_SID=ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-      - TWILIO_TOKEN=your_twilio_auth_token
-      - TWILIO_PHONE_NUMBER=+1234567890
+      - AI_ENGINE_SECRET=${AI_ENGINE_SECRET}
+      - POLICE_API_KEY=${POLICE_API_KEY}
+      - TWILIO_SID=${TWILIO_SID}
+      - TWILIO_TOKEN=${TWILIO_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - BACKEND_URL=${BACKEND_URL}
     depends_on:
       - postgres
     networks:

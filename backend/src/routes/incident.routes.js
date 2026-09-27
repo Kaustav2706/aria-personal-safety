@@ -19,7 +19,7 @@ router.get('/:id', authenticateToken, getIncidentById);
 router.put('/:id/resolve', authenticateToken, resolveIncident);
 
 // DELETE /api/incidents/:id
-router.delete('/:id', deleteIncident);
+router.delete('/:id', authenticateToken, deleteIncident);
 
 // POST /api/report/generate
 router.post('/report/generate', authenticateToken, generateReport);

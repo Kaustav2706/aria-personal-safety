@@ -45,9 +45,9 @@ function AppContent() {
   useEffect(() => {
     const checkActiveIncidents = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
-        const res = await axios.get(`${API_BASE}/police/incidents`, {
+        const res = await axios.get(`${API_BASE}/api/police/incidents`, {
           headers: { 'X-Police-API-Key': POLICE_API_KEY }
         });
         const active = (res.data.incidents || []).filter(i => i.status === 'active').length;

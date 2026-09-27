@@ -1,23 +1,30 @@
 /**
  * ARIA Socket.IO Client Service
  * Manages a singleton socket connection to the backend for real-time events.
+ * JWT token is sent in the socket handshake so the server can authenticate
+ * the connection before any events are processed.
  */
 
 import { io, type Socket } from 'socket.io-client';
+import { getToken } from './auth';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 let socket: Socket | null = null;
 
-/** Connect to the Socket.IO server */
+/** Connect to the Socket.IO server (requires a valid JWT in localStorage) */
 export function connectSocket(): Socket {
   if (socket?.connected) return socket;
+
+  const token = getToken();
 
   socket = io(SOCKET_URL, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 2000,
+    // Send JWT in the handshake so the server can authenticate at connection time
+    auth: { token },
   });
 
   socket.on('connect', () => {

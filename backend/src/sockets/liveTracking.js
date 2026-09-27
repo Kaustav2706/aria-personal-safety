@@ -1,10 +1,40 @@
 import { Incident } from '../models/Incident.model.js';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export function setupLiveTracking(io) {
   console.log('[SOCKET.IO] Live Tracking system initialized with full acknowledgements.');
 
+  // ── JWT Handshake Middleware ──────────────────────────────────────────────
+  // Clients must pass their JWT as: socket.auth = { token: '<jwt>' }
+  // or as a query param: ?token=<jwt>
+  io.use((socket, next) => {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(' ')[1] ||
+      socket.handshake.query?.token;
+
+    if (!token) {
+      return next(new Error('Authentication required: no token provided'));
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      // Attach verified identity to socket — available in all event handlers
+      socket.user = {
+        id: decoded.userId,
+        sessionId: decoded.sessionId,
+        role: decoded.role || 'user'
+      };
+      next();
+    } catch (err) {
+      return next(new Error('Authentication failed: invalid or expired token'));
+    }
+  });
+
   io.on('connection', (socket) => {
-    console.log(`[SOCKET.IO] Client connected: Socket ID = ${socket.id}`);
+    console.log(`[SOCKET.IO] Client connected: Socket ID = ${socket.id}, User ID = ${socket.user.id}`);
 
     // Dispatchers register into a dedicated room
     socket.on('registerDispatcher', (_, callback) => {

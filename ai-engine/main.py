@@ -1,6 +1,6 @@
 import os
 import tempfile
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
@@ -20,13 +20,17 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Enable CORS for cross-communication
+# Restrict CORS to only the backend service — this is an internal API,
+# it should never be callable from a browser or public client.
+# BACKEND_URL must be set in the environment (e.g. http://aria-backend:5000)
+_allowed_origins = [o.strip() for o in os.environ.get("BACKEND_URL", "http://localhost:5000").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["POST"],
+    allow_headers=["X-Internal-Secret", "Content-Type"],
 )
 
 # Instantiate models

@@ -1,10 +1,9 @@
 import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
+import crypto from 'crypto';
 
 export class Incident {
   static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '' }) {
 
-
-    const crypto = require('crypto');
     const incidentId = crypto.randomUUID();
 
     if (dbMode === 'memory') {

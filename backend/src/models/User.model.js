@@ -1,9 +1,9 @@
 import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
+import crypto from 'crypto';
 
 export class User {
   static async create({ name, email, phone, passwordHash, emergencyContacts = [] }) {
 
-    const crypto = require('crypto');
     const userId = crypto.randomUUID();
 
     if (dbMode === 'memory') {
