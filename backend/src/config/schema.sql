@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   longitude DOUBLE PRECISION NOT NULL,
   risk_score INTEGER DEFAULT 0,
   audio_transcript TEXT,
+  audio_url TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

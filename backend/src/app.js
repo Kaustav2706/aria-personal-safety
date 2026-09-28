@@ -51,7 +51,6 @@ app.use((req, res, next) => {
   next();
 });
 
-
 // Serve local uploads folder statically for PDF report access
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -83,12 +82,14 @@ async function boot() {
   
   server.listen(PORT, () => {
     console.log(`\n==========================================`);
-    console.log(`🚀 ARIA Backend Server is running live on:`);
+    console.log(`ARIA Backend Server is running live on:`);
     console.log(`   Local URL: http://localhost:${PORT}`);
     console.log(`==========================================\n`);
   });
 }
 
-boot();
+if (process.env.NODE_ENV !== 'test') {
+  boot();
+}
 
 export default app;

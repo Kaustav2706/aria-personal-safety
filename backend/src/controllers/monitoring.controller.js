@@ -5,6 +5,7 @@ import { AIService } from '../services/aiService.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import { StorageService } from '../services/storageService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { pool, dbMode } from '../config/db.js';
 
@@ -55,6 +56,7 @@ async function isInCooldown(userId) {
 // POST /api/monitoring/chunk
 // Accepts a short audio chunk, runs AI analysis, and auto-creates an
 // incident if thresholds are met (with 5-minute per-user cooldown).
+// Saves ONLY the triggering clip as evidence, discarding non-triggering streams.
 // ═══════════════════════════════════════════════════════════════════════════
 export const analyzeChunk = asyncHandler(async (req, res) => {
   const userId = req.userId;
@@ -119,9 +121,17 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
         if (!user) {
           console.error(`[MONITORING] User ${userId} not found. Cannot create auto-incident.`);
         } else {
-          // ── Reuse existing incident creation flow ──────────────────
-          // This mirrors incident.controller.js lines 56-97 exactly,
-          // using the same models and services without duplication.
+          // ── Save triggering clip ONLY as evidence to S3/StorageService ────────
+          let audioUrl = null;
+          try {
+            audioUrl = await StorageService.uploadEvidence(
+              req.file.originalname,
+              req.file.buffer,
+              req.file.mimetype || 'audio/wav'
+            );
+          } catch (storageErr) {
+            console.error('[MONITORING] StorageService audio upload failed:', storageErr.message);
+          }
 
           const incident = await Incident.create({
             userId,
@@ -130,10 +140,14 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
             latitude: parseFloat(latitude) || 0.0,
             longitude: parseFloat(longitude) || 0.0,
             riskScore,
-            audioTranscript: transcript
+            audioTranscript: transcript,
+            audioUrl
           });
 
-          console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%)`);
+          console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%) with Audio Evidence: ${audioUrl || 'N/A'}`);
+
+          // Resolve signed URL for output
+          const signedAudioUrl = audioUrl ? await StorageService.getSignedUrl(audioUrl) : null;
 
           // Notify emergency contacts via SMS (reuse TwilioService)
           await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
@@ -165,6 +179,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           if (io) {
             io.emit('incidentCreated', {
               ...incident,
+              audioUrl: signedAudioUrl,
               userName: user.name,
               userPhone: user.phone
             });
@@ -173,7 +188,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           autoIncident = {
             incidentId: incident.id,
             riskScore: incident.riskScore,
-            triggerType: incident.triggerType
+            triggerType: incident.triggerType,
+            audioUrl: signedAudioUrl
           };
 
           console.log(`[MONITORING] Auto Incident Triggered: YES | Session: ${sessionId || 'N/A'} | User: ${userId} | Risk: ${riskScore} | Distress: ${distress}`);
@@ -184,7 +200,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
       }
     }
   } else {
-    console.log(`[MONITORING] No threat detected for user ${userId}. Risk: ${riskScore}, Distress: ${distress}, Confidence: ${confidence}`);
+    console.log(`[MONITORING] No threat detected for user ${userId}. Risk: ${riskScore}, Distress: ${distress}, Confidence: ${confidence}. Continuous audio stream discarded.`);
   }
 
   // 5. Return analysis results

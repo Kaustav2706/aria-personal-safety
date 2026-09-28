@@ -101,13 +101,13 @@ export default function ReportView() {
   const { incident, user } = data;
   const isHighRisk = incident.riskScore >= 70;
   const riskColor = isHighRisk ? 'var(--color-danger)' : incident.riskScore >= 40 ? 'var(--color-warning)' : 'var(--color-success)';
-  const mockAudioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+  const audioSource = incident.audioUrl || incident.audio_url || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
   return (
     <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
       {/* Hidden audio player */}
-      <audio ref={audioRef} src={mockAudioUrl} onEnded={() => setIsPlaying(false)} style={{ display: 'none' }} />
+      <audio ref={audioRef} src={audioSource} onEnded={() => setIsPlaying(false)} style={{ display: 'none' }} />
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

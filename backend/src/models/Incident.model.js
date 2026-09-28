@@ -1,7 +1,7 @@
-import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
+﻿import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export class Incident {
-  static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '' }) {
+  static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '', audioUrl = null }) {
     const incidentId = `inc_${Math.random().toString(36).substr(2, 9)}`;
 
     if (dbMode === 'memory') {
@@ -14,9 +14,10 @@ export class Incident {
         longitude: parseFloat(longitude) || 0.0,
         riskScore: parseInt(riskScore) || 0,
         audioTranscript,
+        audioUrl: audioUrl || null,
         createdAt: new Date().toISOString()
       };
-      
+
       memoryStore.incidents.push(newIncident);
       memoryStore.locationHistory.push({
         id: memoryStore.locationHistory.length + 1,
@@ -37,20 +38,21 @@ export class Incident {
       await client.query('BEGIN');
 
       const insertQuery = `
-        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", created_at as "createdAt"
+        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript, audio_url)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt"
       `;
-      
+
       const res = await client.query(insertQuery, [
-        incidentId, 
-        userId, 
-        status, 
-        triggerType, 
-        parseFloat(latitude) || 0.0, 
-        parseFloat(longitude) || 0.0, 
-        parseInt(riskScore) || 0, 
-        audioTranscript
+        incidentId,
+        userId,
+        status,
+        triggerType,
+        parseFloat(latitude) || 0.0,
+        parseFloat(longitude) || 0.0,
+        parseInt(riskScore) || 0,
+        audioTranscript,
+        audioUrl || null
       ]);
       const incident = res.rows[0];
 
@@ -82,10 +84,10 @@ export class Incident {
 
     try {
       const query = `
-        SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
-               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", 
-               created_at as "createdAt" 
-        FROM incidents 
+        SELECT id, user_id as "userId", status, trigger_type as "triggerType",
+               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+               audio_url as "audioUrl", created_at as "createdAt"
+        FROM incidents
         WHERE id = $1
       `;
       const res = await pool.query(query, [id]);
@@ -104,10 +106,10 @@ export class Incident {
 
     try {
       const query = `
-        SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
-               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", 
-               created_at as "createdAt" 
-        FROM incidents 
+        SELECT id, user_id as "userId", status, trigger_type as "triggerType",
+               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+               audio_url as "audioUrl", created_at as "createdAt"
+        FROM incidents
         ORDER BY created_at DESC
       `;
       const res = await pool.query(query);
@@ -127,10 +129,10 @@ export class Incident {
 
     try {
       const query = `
-        SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
-               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", 
-               created_at as "createdAt" 
-        FROM incidents 
+        SELECT id, user_id as "userId", status, trigger_type as "triggerType",
+               latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+               audio_url as "audioUrl", created_at as "createdAt"
+        FROM incidents
         WHERE user_id = $1
         ORDER BY created_at DESC
       `;
@@ -153,6 +155,7 @@ export class Incident {
       if (updates.longitude !== undefined) current.longitude = parseFloat(updates.longitude);
       if (updates.riskScore !== undefined) current.riskScore = parseInt(updates.riskScore);
       if (updates.audioTranscript) current.audioTranscript = updates.audioTranscript;
+      if (updates.audioUrl !== undefined) current.audioUrl = updates.audioUrl;
 
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
         memoryStore.locationHistory.push({
@@ -197,9 +200,13 @@ export class Incident {
         fields.push(`audio_transcript = $${valIdx++}`);
         values.push(updates.audioTranscript);
       }
+      if (updates.audioUrl !== undefined) {
+        fields.push(`audio_url = $${valIdx++}`);
+        values.push(updates.audioUrl);
+      }
 
       if (fields.length === 0) {
-        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", created_at as "createdAt" FROM incidents WHERE id = $1`;
+        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt" FROM incidents WHERE id = $1`;
         const res = await client.query(query, [id]);
         await client.query('COMMIT');
         return res.rows[0];
@@ -207,10 +214,10 @@ export class Incident {
 
       values.push(id);
       const updateQuery = `
-        UPDATE incidents 
-        SET ${fields.join(', ')} 
-        WHERE id = $${valIdx} 
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", created_at as "createdAt"
+        UPDATE incidents
+        SET ${fields.join(', ')}
+        WHERE id = $${valIdx}
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt"
       `;
       const res = await client.query(updateQuery, values);
       const incident = res.rows[0];
@@ -274,9 +281,9 @@ export class Incident {
 
     try {
       const query = `
-        SELECT id, incident_id as "incidentId", latitude, longitude, risk_score as "riskScore", timestamp 
-        FROM location_history 
-        WHERE incident_id = $1 
+        SELECT id, incident_id as "incidentId", latitude, longitude, risk_score as "riskScore", timestamp
+        FROM location_history
+        WHERE incident_id = $1
         ORDER BY timestamp ASC
       `;
       const res = await pool.query(query, [incidentId]);
@@ -292,7 +299,7 @@ export class Incident {
       const idx = memoryStore.incidents.findIndex(i => i.id === id);
       if (idx === -1) return false;
       memoryStore.incidents.splice(idx, 1);
-      
+
       // Clear location history for this incident
       for (let i = memoryStore.locationHistory.length - 1; i >= 0; i--) {
         if (memoryStore.locationHistory[i].incidentId === id) {
@@ -307,13 +314,13 @@ export class Incident {
     try {
       await client.query('BEGIN');
       await client.query('DELETE FROM location_history WHERE incident_id = $1', [id]);
-      
+
       try {
         await client.query('DELETE FROM reports WHERE incident_id = $1', [id]);
       } catch (err) {
         // Table reports might not exist or already be cascade deleted
       }
-      
+
       const res = await client.query('DELETE FROM incidents WHERE id = $1', [id]);
       await client.query('COMMIT');
       return res.rowCount > 0;

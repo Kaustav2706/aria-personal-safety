@@ -1,10 +1,11 @@
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
-import { ReportService } from '../services/reportService.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import { ReportService } from '../services/reportService.js';
 import { AIService } from '../services/aiService.js';
+import { StorageService } from '../services/storageService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { pool, dbMode } from '../config/db.js';
 
@@ -22,9 +23,9 @@ export const createIncident = asyncHandler(async (req, res) => {
   }
 
   let finalTranscript = '';
-  let finalRiskScore = 50; // default moderate score
+  let finalRiskScore = 50;
+  let audioUrl = null;
   
-  // 1. Process voice audio file upload if present
   if (req.file) {
     console.log(`[INCIDENT CONTROLLER] Audio file received: ${req.file.originalname}`);
     const analysis = await AIService.analyzeAudioIncident({
@@ -37,11 +38,19 @@ export const createIncident = asyncHandler(async (req, res) => {
 
     finalTranscript = analysis.transcript;
     finalRiskScore = analysis.riskScore;
+
+    try {
+      audioUrl = await StorageService.uploadEvidence(
+        req.file.originalname,
+        req.file.buffer,
+        req.file.mimetype || 'audio/wav'
+      );
+    } catch (storageErr) {
+      console.error('[INCIDENT CONTROLLER] StorageService upload failed:', storageErr.message);
+    }
   } else {
-    // Basic context calculation if no audio upload was captured
     let calculatedScore = 50;
     if (triggerType === 'manual') {
-      // Introduce minor variance (78-82) to avoid a perfectly constant base score
       calculatedScore = 78 + Math.floor(Math.random() * 5);
     }
     if (triggerType === 'audio') calculatedScore = 70;
@@ -53,9 +62,11 @@ export const createIncident = asyncHandler(async (req, res) => {
 
     finalRiskScore = Math.min(calculatedScore, 100);
     finalTranscript = req.body.audioTranscript || '';
+    if (req.body.audioUrl) {
+      audioUrl = req.body.audioUrl;
+    }
   }
 
-  // 2. Save incident to PostgreSQL
   const incident = await Incident.create({
     userId,
     status: 'active',
@@ -63,25 +74,26 @@ export const createIncident = asyncHandler(async (req, res) => {
     latitude: parseFloat(latitude) || 0.0,
     longitude: parseFloat(longitude) || 0.0,
     riskScore: finalRiskScore,
-    audioTranscript: finalTranscript
+    audioTranscript: finalTranscript,
+    audioUrl
   });
 
-  // 3. Notify Emergency Contacts and Police Dispatch
-  await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
-  await FirebaseService.sendPoliceBroadcast(incident);
+  const signedAudioUrl = incident.audioUrl ? await StorageService.getSignedUrl(incident.audioUrl) : null;
+  const incidentResponse = {
+    ...incident,
+    audioUrl: signedAudioUrl
+  };
 
-  // Trigger emergency voice calls if risk score matches threshold
+  await TwilioService.sendSOSAlert(user.emergencyContacts, user, incidentResponse);
+  await FirebaseService.sendPoliceBroadcast(incidentResponse);
+
   if (incident.riskScore >= 60) {
     console.log(`[INCIDENT CONTROLLER] Risk score (${incident.riskScore}%) >= 60%. Triggering Twilio emergency voice calls.`);
-    
-    // Call fallback number
-    await TwilioVoiceService.makeEmergencyCall('+919983376352', user, incident);
-    
-    // Call emergency contacts
+    await TwilioVoiceService.makeEmergencyCall('+919983376352', user, incidentResponse);
     if (user.emergencyContacts && user.emergencyContacts.length > 0) {
       for (const contact of user.emergencyContacts) {
         try {
-          await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
+          await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incidentResponse);
         } catch (callErr) {
           console.error(`[INCIDENT CONTROLLER] Failed emergency voice call sequence to ${contact.name} (${contact.phone}):`, callErr.message);
         }
@@ -89,11 +101,10 @@ export const createIncident = asyncHandler(async (req, res) => {
     }
   }
 
-  // 4. Emit live update through Sockets
   const io = req.app.get('io');
   if (io) {
     io.emit('incidentCreated', {
-      ...incident,
+      ...incidentResponse,
       userName: user.name,
       userPhone: user.phone
     });
@@ -102,7 +113,7 @@ export const createIncident = asyncHandler(async (req, res) => {
   return res.status(201).json({
     success: true,
     message: 'Incident registered and safety protocols deployed',
-    incident
+    incident: incidentResponse
   });
 });
 
@@ -112,8 +123,10 @@ export const getIncidents = asyncHandler(async (req, res) => {
   
   const enrichedList = await Promise.all(list.map(async (inc) => {
     const user = await User.findById(inc.userId);
+    const signedAudioUrl = inc.audioUrl ? await StorageService.getSignedUrl(inc.audioUrl) : null;
     return {
       ...inc,
+      audioUrl: signedAudioUrl,
       userName: user ? user.name : 'Unknown User',
       userPhone: user ? user.phone : 'N/A'
     };
@@ -138,7 +151,6 @@ export const getIncidentById = asyncHandler(async (req, res) => {
     });
   }
 
-  // Verify ownership
   if (incident.userId !== userId) {
     return res.status(403).json({
       success: false,
@@ -149,10 +161,14 @@ export const getIncidentById = asyncHandler(async (req, res) => {
 
   const user = await User.findById(incident.userId);
   const history = await Incident.getLocationHistory(id);
+  const signedAudioUrl = incident.audioUrl ? await StorageService.getSignedUrl(incident.audioUrl) : null;
 
   return res.status(200).json({
     success: true,
-    incident,
+    incident: {
+      ...incident,
+      audioUrl: signedAudioUrl
+    },
     user: user ? { name: user.name, phone: user.phone, email: user.email, emergencyContacts: user.emergencyContacts } : null,
     locationHistory: history || []
   });
@@ -171,7 +187,6 @@ export const resolveIncident = asyncHandler(async (req, res) => {
     });
   }
 
-  // Verify ownership
   if (incident.userId !== userId) {
     return res.status(403).json({
       success: false,
@@ -182,7 +197,6 @@ export const resolveIncident = asyncHandler(async (req, res) => {
 
   const updated = await Incident.update(id, { status: 'resolved' });
 
-  // Broadcast socket resolution update
   const io = req.app.get('io');
   if (io) {
     io.emit('incidentResolved', { incidentId: id });
@@ -215,7 +229,6 @@ export const generateReport = asyncHandler(async (req, res) => {
     });
   }
 
-  // Verify ownership
   if (incident.userId !== userId) {
     return res.status(403).json({
       success: false,
@@ -227,7 +240,6 @@ export const generateReport = asyncHandler(async (req, res) => {
   const user = await User.findById(incident.userId);
   const pdfUrl = await ReportService.generateIncidentPDF(incident, user);
 
-  // Store report metadata in db
   try {
     if (dbMode === 'postgres') {
       await pool.query(
@@ -260,7 +272,6 @@ export const deleteIncident = asyncHandler(async (req, res) => {
     });
   }
 
-  // Verify ownership — prevent BOLA
   if (incident.userId !== userId) {
     return res.status(403).json({
       success: false,
@@ -269,7 +280,7 @@ export const deleteIncident = asyncHandler(async (req, res) => {
     });
   }
 
-  const deleted = await Incident.delete(id);
+  await Incident.delete(id);
 
   return res.status(200).json({
     success: true,
