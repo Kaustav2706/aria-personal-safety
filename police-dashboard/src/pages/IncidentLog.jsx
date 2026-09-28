@@ -4,8 +4,7 @@ import axios from 'axios';
 import { Search, FileText, CheckCircle2, AlertOctagon, Filter, RefreshCw, Trash2 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
-const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
+import { policeConfig } from '../api.js';
 
 export default function IncidentLog() {
   const navigate = useNavigate();
@@ -22,7 +21,7 @@ export default function IncidentLog() {
   const fetchIncidents = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/police/incidents`, { headers: policeHeaders });
+      const res = await axios.get(`${API_BASE}/police/incidents`, policeConfig());
       setIncidents(res.data.incidents || []);
     } catch (err) {
       console.error('Error fetching incident logs:', err);
@@ -34,7 +33,7 @@ export default function IncidentLog() {
   const handleResolve = async (id, e) => {
     e.stopPropagation();
     try {
-      await axios.put(`${API_BASE}/police/incidents/${id}/resolve`, {}, { headers: policeHeaders });
+      await axios.put(`${API_BASE}/police/incidents/${id}/resolve`, {}, policeConfig());
       if (window.showToast) window.showToast('Incident resolved successfully.', 'success');
       fetchIncidents();
     } catch (err) {
@@ -49,7 +48,7 @@ export default function IncidentLog() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE}/incidents/${id}`);
+      await axios.delete(`${API_BASE}/incidents/${id}`, policeConfig());
       if (window.showToast) window.showToast('Incident record deleted permanently.', 'success');
       fetchIncidents();
     } catch (err) {

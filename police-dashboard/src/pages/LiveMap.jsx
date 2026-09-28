@@ -20,8 +20,7 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
-const policeHeaders = { 'X-Police-API-Key': POLICE_API_KEY };
+import { policeConfig, getToken } from '../api.js';
 
 export default function LiveMap() {
   const navigate = useNavigate();
@@ -108,7 +107,16 @@ export default function LiveMap() {
     const socket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 15,
-      reconnectionDelay: 1500
+      reconnectionDelay: 1500,
+      // Send JWT in handshake — server rejects the connection if missing/invalid
+      auth: { token: getToken() }
+    });
+
+    socket.on('connect', () => {
+      // Register as dispatcher to join the scoped broadcast room
+      socket.emit('registerDispatcher', {}, (res) => {
+        if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration failed:', res?.message);
+      });
     });
 
     socket.on('incidentCreated', (newIncident) => {
@@ -208,7 +216,7 @@ export default function LiveMap() {
 
   const fetchActiveIncidents = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/police/incidents`, { headers: policeHeaders });
+      const res = await axios.get(`${API_BASE}/police/incidents`, policeConfig());
       setIncidents(res.data.incidents || []);
     } catch (err) {
       console.error('Error fetching dashboard incidents:', err);
@@ -235,7 +243,7 @@ export default function LiveMap() {
   const handleResolveSelected = async () => {
     if (!selectedIncident) return;
     try {
-      await axios.put(`${API_BASE}/police/incidents/${selectedIncident.id}/resolve`, {}, { headers: policeHeaders });
+      await axios.put(`${API_BASE}/police/incidents/${selectedIncident.id}/resolve`, {}, policeConfig());
       setIncidents(prev => prev.map(i =>
         i.id === selectedIncident.id ? { ...i, status: 'resolved' } : i
       ));
@@ -253,7 +261,7 @@ export default function LiveMap() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE}/incidents/${id}`);
+      await axios.delete(`${API_BASE}/incidents/${id}`, policeConfig());
       if (window.showToast) window.showToast('Incident record deleted permanently.', 'success');
       setSelectedIncident(null);
       fetchActiveIncidents();

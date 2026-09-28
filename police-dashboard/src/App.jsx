@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink, useLocation } from 'react-router-dom';
-import { Shield, Map, History, Radio, Zap, Clock, Volume2, VolumeX } from 'lucide-react';
+import { BrowserRouter as Router, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
+import { Shield, Map, History, Radio, Zap, Clock, Volume2, VolumeX, LogOut } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
@@ -9,6 +9,17 @@ import Dashboard from './pages/Dashboard.jsx';
 import LiveMap from './pages/LiveMap.jsx';
 import IncidentLog from './pages/IncidentLog.jsx';
 import ReportView from './pages/ReportView.jsx';
+import Login from './pages/Login.jsx';
+
+// Auth helpers — token lives in localStorage, never in env vars
+import { isAuthenticated, getToken, clearSession } from './api.js';
+
+function ProtectedRoute({ children }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
 
 function AppContent() {
   const location = useLocation();
@@ -16,6 +27,8 @@ function AppContent() {
   const [toasts, setToasts] = useState([]);
   const [activeCount, setActiveCount] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+
+  const isLoginPage = location.pathname === '/login';
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -43,12 +56,13 @@ function AppContent() {
 
   // Monitor active threats count from WebSocket and API
   useEffect(() => {
+    if (isLoginPage || !isAuthenticated()) return;
+
     const checkActiveIncidents = async () => {
       try {
         const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        const POLICE_API_KEY = import.meta.env.VITE_POLICE_API_KEY || '';
         const res = await axios.get(`${API_BASE}/api/police/incidents`, {
-          headers: { 'X-Police-API-Key': POLICE_API_KEY }
+          headers: { Authorization: `Bearer ${getToken()}` }
         });
         const active = (res.data.incidents || []).filter(i => i.status === 'active').length;
         setActiveCount(active);
@@ -63,6 +77,15 @@ function AppContent() {
     const socket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionAttempts: 10,
+      // Send JWT in handshake — server rejects the connection if missing/invalid
+      auth: { token: getToken() }
+    });
+
+    socket.on('connect', () => {
+      // Register as dispatcher to receive scoped incident broadcasts
+      socket.emit('registerDispatcher', {}, (res) => {
+        if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration failed:', res?.message);
+      });
     });
 
     socket.on('incidentCreated', (newIncident) => {
@@ -81,7 +104,7 @@ function AppContent() {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [isLoginPage]);
 
   // Synthetic alarm chime using Web Audio API
   useEffect(() => {
@@ -137,6 +160,20 @@ function AppContent() {
     { to: '/map', icon: Map, label: 'Tactical Map' },
     { to: '/logs', icon: History, label: 'Incident Logs' },
   ];
+
+  const handleLogout = () => {
+    clearSession();
+    window.location.href = '/login';
+  };
+
+  // Render login page without the shell chrome
+  if (isLoginPage) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+      </Routes>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)', position: 'relative' }}>
@@ -238,6 +275,20 @@ function AppContent() {
             <span className="pulse-dot" />
             {activeCount > 0 ? `${activeCount} ACTIVE SOS` : 'LIVE FEED'}
           </div>
+
+          {/* Separator */}
+          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }} />
+
+          {/* Logout */}
+          <button
+            id="dispatcher-logout-btn"
+            className="mute-button"
+            onClick={handleLogout}
+            title="Sign out"
+            style={{ gap: '6px', display: 'flex', alignItems: 'center' }}
+          >
+            <LogOut size={14} />
+          </button>
         </div>
       </header>
 
@@ -252,10 +303,10 @@ function AppContent() {
         zIndex: 1,
       }}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/map" element={<LiveMap />} />
-          <Route path="/logs" element={<IncidentLog />} />
-          <Route path="/reports/:id" element={<ReportView />} />
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/map" element={<ProtectedRoute><LiveMap /></ProtectedRoute>} />
+          <Route path="/logs" element={<ProtectedRoute><IncidentLog /></ProtectedRoute>} />
+          <Route path="/reports/:id" element={<ProtectedRoute><ReportView /></ProtectedRoute>} />
         </Routes>
       </main>
 

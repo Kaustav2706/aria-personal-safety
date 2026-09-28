@@ -14,7 +14,7 @@ function createRefreshToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-async function createAuthTokens(userId) {
+async function createAuthTokens(userId, role = 'user') {
   const refreshToken = createRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS).toISOString();
   const session = await AuthSession.create({
@@ -22,7 +22,7 @@ async function createAuthTokens(userId) {
     refreshTokenHash: hashRefreshToken(refreshToken),
     expiresAt
   });
-  const token = jwt.sign({ userId, sessionId: session.id }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  const token = jwt.sign({ userId, sessionId: session.id, role }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
   return { token, refreshToken };
 }
 
@@ -67,7 +67,7 @@ export const register = asyncHandler(async (req, res) => {
     emergencyContacts: emergencyContacts || []
   });
 
-  const { token, refreshToken } = await createAuthTokens(newUser.id);
+  const { token, refreshToken } = await createAuthTokens(newUser.id, newUser.role || 'user');
 
   // Exclude password hash
   const { passwordHash: _, ...userWithoutPassword } = newUser;
@@ -110,7 +110,7 @@ export const login = asyncHandler(async (req, res) => {
     });
   }
 
-  const { token, refreshToken } = await createAuthTokens(user.id);
+  const { token, refreshToken } = await createAuthTokens(user.id, user.role || 'user');
 
   const { passwordHash: _, ...userWithoutPassword } = user;
 
@@ -158,7 +158,7 @@ export const refresh = asyncHandler(async (req, res) => {
   }
 
   const token = jwt.sign(
-    { userId: session.userId, sessionId: session.id },
+    { userId: session.userId, sessionId: session.id, role: session.role || 'user' },
     JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_EXPIRY }
   );

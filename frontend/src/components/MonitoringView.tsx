@@ -29,6 +29,11 @@ export default function MonitoringView({
   const [distressDetected, setDistressDetected] = useState(false);
   const [chunkCount, setChunkCount] = useState(0);
 
+  // Sensor health state — driven by real events, not hardcoded strings
+  const [gpsFixAge, setGpsFixAge] = useState<number | null>(null);      // seconds since last fix
+  const [gpsFixOk, setGpsFixOk] = useState<boolean | null>(null);       // null = never tried
+  const [lastUploadOk, setLastUploadOk] = useState<boolean | null>(null); // null = never uploaded
+
   // Recording state
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState('');
@@ -47,33 +52,21 @@ export default function MonitoringView({
   const animationFrameRef = useRef<number | null>(null);
   const lastBackendConfidenceRef = useRef<number>(15);
 
-  const [riskHistory, setRiskHistory] = useState<number[]>([15, 35, 20, 48, 18, 38, 22, 45, 28, 35]);
+  // Risk history — one real point per chunk analysis, max 20 points kept
+  // Seeded with a flat baseline so the chart isn't empty before monitoring starts
+  const [riskHistory, setRiskHistory] = useState<number[]>([]);
 
-  // Update last history element with latest risk score from backend
+  // GPS fix age ticker — increments every second after a successful fix so the
+  // Sensor Health panel can show how stale the position reading is.
+  const gpsFixTimeRef = useRef<number | null>(null); // epoch ms of last fix
   useEffect(() => {
-    setRiskHistory((prev) => {
-      const next = [...prev];
-      if (next.length > 0) {
-        next[next.length - 1] = riskScore;
+    const ticker = setInterval(() => {
+      if (gpsFixTimeRef.current !== null) {
+        setGpsFixAge(Math.floor((Date.now() - gpsFixTimeRef.current) / 1000));
       }
-      return next;
-    });
-  }, [riskScore]);
-
-  // Periodic sliding wave effect for dynamic curve animation (much more prominent waves)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setRiskHistory((prev) => {
-        const base = isActive ? riskScore : 30;
-        const noiseRange = isActive ? 30 : 40;
-        const noise = Math.floor(Math.random() * noiseRange) - (noiseRange / 2);
-        const nextVal = Math.max(8, Math.min(92, base + noise));
-        return [...prev.slice(1), nextVal];
-      });
-    }, 1200);
-
-    return () => clearInterval(interval);
-  }, [isActive, riskScore]);
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, []);
 
   // Generate cubic bezier curvy SVG path (scaled to fill more vertical space)
   const getCurvePath = (data: number[]) => {
@@ -106,9 +99,19 @@ export default function MonitoringView({
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => setGpsCoords({ lat: 37.7749, lng: -122.4194 })
+        (pos) => {
+          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setGpsFixOk(true);
+          gpsFixTimeRef.current = Date.now();
+          setGpsFixAge(0);
+        },
+        () => {
+          setGpsCoords({ lat: 37.7749, lng: -122.4194 });
+          setGpsFixOk(false);
+        }
       );
+    } else {
+      setGpsFixOk(false);
     }
   }, []);
 
@@ -245,8 +248,11 @@ export default function MonitoringView({
           navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000 })
         );
         setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsFixOk(true);
+        gpsFixTimeRef.current = Date.now();
+        setGpsFixAge(0);
       } catch {
-        // use existing coords
+        // use existing coords; mark fix as stale (don't reset gpsFixOk — last known state is fine)
       }
 
       const formData = new FormData();
@@ -268,6 +274,14 @@ export default function MonitoringView({
         setChunkCount((prev) => prev + 1);
         onRiskScoreChange(data.riskScore);
 
+        // Append the real backend risk score to the chart history (max 20 points)
+        setRiskHistory((prev) => {
+          const next = [...prev, data.riskScore];
+          return next.length > 20 ? next.slice(next.length - 20) : next;
+        });
+
+        setLastUploadOk(true);
+
         // If auto-incident was created
         if (data.autoIncident) {
           onIncidentCreated({
@@ -285,6 +299,7 @@ export default function MonitoringView({
       }
     } catch (err: any) {
       console.warn('[MONITORING] Chunk upload failed:', err.message);
+      setLastUploadOk(false);
     } finally {
       setUploading(false);
     }
@@ -454,7 +469,11 @@ export default function MonitoringView({
               <span className="text-[12px] font-bold text-on-surface-variant/80">Voice Distress Confidence</span>
             </div>
             <div className="flex items-center gap-3">
-              {isActive && (
+              {/* DEV-only: simulate a distress reading for manual QA.
+                  import.meta.env.DEV is replaced with `false` at build time
+                  by Vite, so this entire block is dead-code-eliminated in
+                  production and never visible to real users. */}
+              {import.meta.env.DEV && isActive && (
                 <button
                   type="button"
                   onClick={() => {
@@ -463,8 +482,9 @@ export default function MonitoringView({
                     setDistressDetected(true);
                   }}
                   className="px-2.5 py-1 rounded-lg bg-tertiary/[0.08] hover:bg-tertiary/[0.15] border border-tertiary/15 text-[9px] uppercase tracking-[0.1em] font-extrabold text-tertiary transition-colors cursor-pointer"
+                  title="Dev-only: simulate distress signal"
                 >
-                  Test &gt;50%
+                  [DEV] Test &gt;50%
                 </button>
               )}
               <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
@@ -559,6 +579,13 @@ export default function MonitoringView({
             </span>
           </div>
 
+          {/* Empty state — before any analysis has come back */}
+          {riskHistory.length === 0 && (
+            <p className="text-[12px] text-on-surface-variant/40 text-center py-4">
+              {isActive ? 'Waiting for first analysis…' : 'Start monitoring to see real risk data.'}
+            </p>
+          )}
+
           {/* Styled vector chart path representing risk metric standard line */}
           <div className="relative h-20 w-full pt-2">
             <svg className="w-full h-full" viewBox="0 0 400 100" preserveAspectRatio="none">
@@ -613,44 +640,114 @@ export default function MonitoringView({
           </h3>
           
           <div className="space-y-2.5">
+            {/* GNSS Tracking — reflects last geolocation fix result and age */}
             <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-secondary/[0.08] flex items-center justify-center">
-                  <Compass className="w-4.5 h-4.5 text-secondary/80 animate-spin" style={{ animationDuration: '8s' }} />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                  gpsFixOk === true ? 'bg-secondary/[0.08]' : 'bg-primary/[0.06]'
+                }`}>
+                  <Compass className={`w-4.5 h-4.5 ${
+                    gpsFixOk === true ? 'text-secondary/80 animate-spin' : 'text-on-surface-variant/40'
+                  }`} style={{ animationDuration: '8s' }} />
                 </div>
-                <span className="font-semibold text-[14px] text-on-surface">GNSS Tracking</span>
+                <div>
+                  <span className="font-semibold text-[14px] text-on-surface">GNSS Tracking</span>
+                  {gpsFixOk === true && gpsFixAge !== null && (
+                    <p className="text-[10px] text-on-surface-variant/40 font-medium">
+                      Fix {gpsFixAge < 60 ? `${gpsFixAge}s` : `${Math.floor(gpsFixAge / 60)}m`} ago
+                      &nbsp;&middot;&nbsp;{gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)}
+                    </p>
+                  )}
+                  {gpsFixOk === false && (
+                    <p className="text-[10px] text-primary/70 font-medium">Location unavailable</p>
+                  )}
+                </div>
               </div>
-              <span className="text-[9px] font-black uppercase text-secondary tracking-[0.1em] bg-secondary/[0.08] px-3 py-1.5 rounded-full border border-secondary/15">
-                ACTIVE
-              </span>
+              {gpsFixOk === null && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-on-surface-variant/50 bg-surface-container/60 border-white/[0.06]">
+                  Waiting
+                </span>
+              )}
+              {gpsFixOk === true && (
+                <span className={`text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border ${
+                  gpsFixAge !== null && gpsFixAge > 30
+                    ? 'text-yellow-400 bg-yellow-500/[0.08] border-yellow-500/15'
+                    : 'text-secondary bg-secondary/[0.08] border-secondary/15'
+                }`}>
+                  {gpsFixAge !== null && gpsFixAge > 30 ? 'Stale' : 'Active'}
+                </span>
+              )}
+              {gpsFixOk === false && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-primary bg-primary/[0.08] border-primary/15">
+                  No Fix
+                </span>
+              )}
             </div>
 
+            {/* Biometric Audio — reflects actual microphone recording state */}
             <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-primary/[0.06] flex items-center justify-center">
-                  <Ear className="w-4.5 h-4.5 text-on-surface-variant/60" />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                  isActive ? 'bg-red-500/[0.08]' : 'bg-primary/[0.06]'
+                }`}>
+                  <Ear className={`w-4.5 h-4.5 ${
+                    isActive ? 'text-red-400' : 'text-on-surface-variant/60'
+                  }`} />
                 </div>
                 <span className="font-semibold text-[14px] text-on-surface">Biometric Audio</span>
               </div>
               <span className={`text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border ${
                 isActive 
                   ? 'text-red-400 bg-red-500/[0.08] border-red-500/15' 
-                  : 'text-secondary bg-secondary/[0.08] border-secondary/15'
+                  : 'text-on-surface-variant/50 bg-surface-container/60 border-white/[0.06]'
               }`}>
-                {isActive ? 'RECORDING' : 'IDLE'}
+                {isActive ? 'Recording' : 'Inactive'}
               </span>
             </div>
 
+            {/* Cloud Sync — reflects last chunk upload result */}
             <div className="flex items-center justify-between p-3.5 glass-card rounded-xl hover-lift">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-tertiary/[0.08] flex items-center justify-center">
-                  <RefreshCw className="w-4.5 h-4.5 text-tertiary/80 animate-bounce" style={{ animationDuration: '3s' }} />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                  lastUploadOk === false ? 'bg-primary/[0.06]' : 'bg-tertiary/[0.08]'
+                }`}>
+                  <RefreshCw className={`w-4.5 h-4.5 ${
+                    uploading
+                      ? 'text-tertiary/80 animate-spin'
+                      : lastUploadOk === false
+                        ? 'text-primary/70'
+                        : 'text-tertiary/80'
+                  }`} />
                 </div>
-                <span className="font-semibold text-[14px] text-on-surface">Cloud Sync</span>
+                <div>
+                  <span className="font-semibold text-[14px] text-on-surface">Cloud Sync</span>
+                  {chunkCount > 0 && (
+                    <p className="text-[10px] text-on-surface-variant/40 font-medium">
+                      {chunkCount} chunk{chunkCount !== 1 ? 's' : ''} uploaded
+                    </p>
+                  )}
+                </div>
               </div>
-              <span className="text-[9px] font-black uppercase text-tertiary tracking-[0.1em] bg-tertiary/[0.08] px-3 py-1.5 rounded-full border border-tertiary/15">
-                STABLE
-              </span>
+              {lastUploadOk === null && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-on-surface-variant/50 bg-surface-container/60 border-white/[0.06]">
+                  Idle
+                </span>
+              )}
+              {uploading && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-tertiary bg-tertiary/[0.08] border-tertiary/15 animate-pulse">
+                  Syncing
+                </span>
+              )}
+              {!uploading && lastUploadOk === true && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-tertiary bg-tertiary/[0.08] border-tertiary/15">
+                  Synced
+                </span>
+              )}
+              {!uploading && lastUploadOk === false && (
+                <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-full border text-primary bg-primary/[0.08] border-primary/15">
+                  Error
+                </span>
+              )}
             </div>
           </div>
         </div>

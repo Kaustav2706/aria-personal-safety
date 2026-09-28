@@ -1,20 +1,28 @@
 /**
  * Police Dashboard Routes
- * 
+ *
  * Separate route namespace for the Police Dispatch Dashboard.
- * Protected by policeAuth middleware (X-Police-API-Key header)
- * instead of JWT user authentication.
- * 
- * These endpoints return ALL incidents without user ownership filtering.
+ * All incident routes are now protected by policeAuth middleware, which
+ * validates a standard JWT token and enforces role='police' — no more
+ * shared API key baked into the browser bundle.
+ *
+ * Dispatchers authenticate via POST /api/auth/login (same endpoint as users)
+ * using their police account credentials and send:
+ *   Authorization: Bearer <token>
  */
 
 import { Router } from 'express';
-import { getPoliceIncidents, getPoliceIncidentById, resolvePoliceIncident, generatePoliceReport } from '../controllers/police.controller.js';
+import {
+  getPoliceIncidents,
+  getPoliceIncidentById,
+  resolvePoliceIncident,
+  generatePoliceReport
+} from '../controllers/police.controller.js';
 import { policeAuth } from '../middleware/policeAuth.js';
 
 const router = Router();
 
-// GET /api/police/incidents — All incidents across all users
+// GET /api/police/incidents — All incidents across all users (dispatcher view)
 router.get('/incidents', policeAuth, getPoliceIncidents);
 
 // GET /api/police/incidents/:id — Single incident detail with user info

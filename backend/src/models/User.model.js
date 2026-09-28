@@ -2,7 +2,7 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import crypto from 'crypto';
 
 export class User {
-  static async create({ name, email, phone, passwordHash, emergencyContacts = [] }) {
+  static async create({ name, email, phone, passwordHash, role = 'user', emergencyContacts = [] }) {
 
     const userId = crypto.randomUUID();
 
@@ -13,6 +13,7 @@ export class User {
         email,
         phone,
         passwordHash,
+        role,
         emergencyContacts: emergencyContacts.map(c => ({ name: c.name, phone: c.phone })),
         createdAt: new Date().toISOString()
       };
@@ -32,11 +33,11 @@ export class User {
       await client.query('BEGIN');
 
       const insertUserQuery = `
-        INSERT INTO users (id, name, email, phone, password_hash)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, email, phone, created_at as "createdAt"
+        INSERT INTO users (id, name, email, phone, password_hash, role)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, name, email, phone, role, created_at as "createdAt"
       `;
-      const userRes = await client.query(insertUserQuery, [userId, name, email, phone, passwordHash]);
+      const userRes = await client.query(insertUserQuery, [userId, name, email, phone, passwordHash, role]);
       const user = userRes.rows[0];
 
       const savedContacts = [];
@@ -90,6 +91,7 @@ export class User {
         email: user.email,
         phone: user.phone,
         passwordHash: user.password_hash,
+        role: user.role || 'user',
         emergencyContacts: contactsRes.rows,
         createdAt: user.created_at
       };
@@ -124,6 +126,7 @@ export class User {
         email: user.email,
         phone: user.phone,
         passwordHash: user.password_hash,
+        role: user.role || 'user',
         emergencyContacts: contactsRes.rows,
         createdAt: user.created_at
       };

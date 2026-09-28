@@ -2,9 +2,7 @@
  * Police Dashboard Controller
  * 
  * Provides dispatch-level access to ALL incidents without user ownership filtering.
- * Protected by X-Police-API-Key middleware instead of JWT auth.
- * 
- * This is a temporary dispatcher access layer until full RBAC is implemented.
+ * Protected by policeAuth JWT middleware (role='police' required).
  */
 
 import { Incident } from '../models/Incident.model.js';
