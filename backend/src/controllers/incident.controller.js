@@ -10,7 +10,8 @@ import { pool, dbMode } from '../config/db.js';
 
 export const createIncident = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { latitude, longitude, triggerType, isIsolated } = req.body;
+  const { latitude, longitude, triggerType, isIsolated, motionAnomaly, motion_anomaly } = req.body;
+  const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
 
   const user = await User.findById(userId);
   if (!user) {
@@ -32,7 +33,11 @@ export const createIncident = asyncHandler(async (req, res) => {
       fileName: req.file.originalname,
       latitude: parseFloat(latitude) || 0.0,
       longitude: parseFloat(longitude) || 0.0,
-      isIsolated: isIsolated === 'true' || isIsolated === true
+      isIsolated: isIsolated === 'true' || isIsolated === true,
+      motionAnomaly: hasMotionAnomaly,
+      // Use the user's preferred language so Whisper doesn't auto-detect on
+      // short clips. Defaults to 'hi' — ARIA's primary target locale.
+      language: user.language || 'hi'
     });
 
     finalTranscript = analysis.transcript;

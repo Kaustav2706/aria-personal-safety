@@ -50,6 +50,9 @@ async def analyze_incident_audio(
     timestamp: Optional[str] = Form(None),
     is_isolated: Optional[bool] = Form(False),
     motion_anomaly: Optional[bool] = Form(False),
+    # BCP-47 language code from the user's profile (e.g. 'hi', 'en').
+    # Passed explicitly so Whisper doesn't have to auto-detect on short clips.
+    language: Optional[str] = Form(None),
     x_internal_secret: Optional[str] = Header(None)
 ):
     """
@@ -76,8 +79,8 @@ async def analyze_incident_audio(
             temp_file.write(content)
             temp_file_path = temp_file.name
 
-        # 1. Run Whisper transcription
-        whisper_result = whisper.transcribe_audio(temp_file_path, original_filename=file.filename)
+        # 1. Run Whisper transcription, passing the user's preferred language
+        whisper_result = whisper.transcribe_audio(temp_file_path, original_filename=file.filename, language=language)
 
         # 2. Run Acoustic classifier with actual audio file path to detect shouting/RMS volume
         tone_conf = tone.classify_voice_tone(temp_file_path, original_filename=file.filename, distress_flagged=whisper_result["distress_flagged"])
@@ -105,8 +108,8 @@ async def analyze_incident_audio(
     is_distress = whisper_flag or tone_conf >= 75.0
     combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
 
-    # 3. Context Scorer calculation using new weights:
-    # Distress Confidence (50%), Threat Level (20%), Isolation (10%), Night Time (5%), Motion (10%), Escalation (5%)
+    # 3. Context Scorer calculation using weights:
+    # Distress Confidence (55%), Threat Level (25%), Isolation (10%), Night Time (5%), Escalation (5%)
     risk_rating = scorer.calculate_risk_score(
         audio_distress=is_distress,
         is_isolated=is_isolated,

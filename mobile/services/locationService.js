@@ -19,12 +19,12 @@ export const LocationService = {
     try {
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        // Fallback coordinates (Delhi center) if running inside an emulator without permissions
-        return {
-          latitude: 28.6139,
-          longitude: 77.2090,
-          mocked: true
-        };
+        // Permission denied — do NOT invent coordinates.
+        // Callers must handle null and show "location unknown" to the dispatcher.
+        // A missing pin tells a dispatcher to phone the person;
+        // a wrong pin sends them to the wrong city.
+        console.warn('[LOCATION SERVICE] Permission denied. Returning unavailable — no fallback coordinates.');
+        return { latitude: null, longitude: null, unavailable: true };
       }
 
       const location = await Location.getCurrentPositionAsync({
@@ -35,15 +35,12 @@ export const LocationService = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         accuracy: location.coords.accuracy,
-        mocked: false
+        unavailable: false
       };
     } catch (err) {
-      console.warn('[LOCATION SERVICE] Failed to fetch current location, falling back to mock.', err.message);
-      return {
-        latitude: 28.6139 + (Math.random() - 0.5) * 0.01,
-        longitude: 77.2090 + (Math.random() - 0.5) * 0.01,
-        mocked: true
-      };
+      // GPS fetch failed — do NOT invent coordinates.
+      console.warn('[LOCATION SERVICE] Failed to fetch current location. Returning unavailable.', err.message);
+      return { latitude: null, longitude: null, unavailable: true };
     }
   }
 };

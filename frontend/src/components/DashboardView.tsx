@@ -27,9 +27,12 @@ export default function DashboardView({
   const isPressing = useRef(false);
   const animationFrameId = useRef<number | null>(null);
 
-  // Live GPS coordinates
-  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // GPS coordinates are fetched fresh by App.tsx at the moment SOS is pressed
+  // (navigator.geolocation.getCurrentPosition with 5s timeout).
+  // A watchPosition here was dead state: the coords were never passed to onTriggerSOS()
+  // and the error handler silently set a San Francisco fallback — removed.
 
+  // Wave animation for ambient voice feed representation
   useEffect(() => {
     const waveInterval = setInterval(() => {
       setWaveHeights([
@@ -43,24 +46,6 @@ export default function DashboardView({
     }, 150);
 
     return () => clearInterval(waveInterval);
-  }, []);
-
-  // Get live GPS
-  useEffect(() => {
-    let watchId: number;
-    if (navigator.geolocation) {
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        },
-        () => {
-          // GPS unavailable — use fallback
-          setGpsCoords({ lat: 37.7749, lng: -122.4194 });
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
-    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
   }, []);
 
   // Custom long press implementation for SOS activation (3 seconds)

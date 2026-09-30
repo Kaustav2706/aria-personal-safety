@@ -25,11 +25,15 @@ export default function Dashboard() {
   const gpsIntervalRef = useRef(null);
 
   useEffect(() => {
-    // 1. Fetch initial location
-    syncCurrentLocation();
+    // 1. Fetch initial location, then start real audio monitoring with the coords
+    syncCurrentLocation().then((loc) => {
+      AudioDetection.startListening(handleAudioTrigger, {
+        latitude: loc?.latitude ?? null,
+        longitude: loc?.longitude ?? null,
+      });
+    });
 
-    // 2. Start background sensors stubs
-    AudioDetection.startListening(handleAudioTrigger);
+    // 2. Start real accelerometer fall detection
     MotionDetection.startFallDetection(handleFallTrigger);
 
     // 3. Connect to WebSockets and bind status events
@@ -62,6 +66,37 @@ export default function Dashboard() {
   const handleAudioTrigger = async (result) => {
     if (status === 'threat') return;
     console.log('[DASHBOARD] Acoustic distress audio matching.');
+
+    if (result.autoIncident?.incidentId) {
+      // Backend auto-created the incident during chunk analysis — adopt it directly
+      const incident = {
+        id: result.autoIncident.incidentId,
+        riskScore: result.autoIncident.riskScore || result.confidence || 85,
+        triggerType: result.autoIncident.triggerType || 'audio'
+      };
+      setStatus('threat');
+      setRiskScore(incident.riskScore);
+      setActiveIncident(incident);
+      socketService.joinIncidentRoom(incident.id);
+
+      if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = setInterval(async () => {
+        const updatedCoords = await LocationService.getCurrentLocation();
+        setCoords(updatedCoords);
+        if (updatedCoords?.unavailable) return;
+
+        socketService.sendLocationUpdate({
+          incidentId: incident.id,
+          latitude: updatedCoords.latitude,
+          longitude: updatedCoords.longitude,
+          riskScore: incident.riskScore
+        });
+      }, 3500);
+
+      Alert.alert('Protocol Initiated', 'Acoustic distress verified. Emergency alerts dispatched.');
+      return;
+    }
+
     triggerSOSEvent('audio', result.confidence, result.transcript);
   };
 
@@ -84,14 +119,16 @@ export default function Dashboard() {
     setRiskScore(baseRisk);
     
     const freshCoords = await syncCurrentLocation();
+    const locationUnavailable = freshCoords?.unavailable ?? true;
 
     try {
       const token = session.token;
       const res = await axios.post(
         `${BACKEND_URL}/alerts/sos`,
         {
-          latitude: freshCoords.latitude,
-          longitude: freshCoords.longitude,
+          latitude: freshCoords?.latitude ?? 0,
+          longitude: freshCoords?.longitude ?? 0,
+          location_unavailable: locationUnavailable,
           triggerType,
           riskScore: baseRisk,
           audioTranscript: transcript
@@ -112,10 +149,12 @@ export default function Dashboard() {
         const updatedCoords = await LocationService.getCurrentLocation();
         setCoords(updatedCoords);
 
+        // Only emit if we have a real fix — never send invented coordinates
+        if (updatedCoords?.unavailable) return;
+
         const mockVaryScore = Math.min(Math.max(baseRisk + Math.round((Math.random() - 0.5) * 8), 0), 100);
         setRiskScore(mockVaryScore);
 
-        // Emit coordinates update via socket
         socketService.sendLocationUpdate({
           incidentId: incident.id,
           latitude: updatedCoords.latitude,
@@ -171,11 +210,15 @@ export default function Dashboard() {
         <Text style={styles.cardTitle}>Device Telemetry</Text>
         <View style={styles.row}>
           <Text style={styles.label}>GPS Latitude</Text>
-          <Text style={styles.val}>{coords ? coords.latitude.toFixed(6) : 'Resolving...'}</Text>
+          <Text style={styles.val}>
+            {coords && !coords.unavailable ? coords.latitude.toFixed(6) : 'Unavailable'}
+          </Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>GPS Longitude</Text>
-          <Text style={styles.val}>{coords ? coords.longitude.toFixed(6) : 'Resolving...'}</Text>
+          <Text style={styles.val}>
+            {coords && !coords.unavailable ? coords.longitude.toFixed(6) : 'Unavailable'}
+          </Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Backup Contacts Alerted</Text>
@@ -193,23 +236,33 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* Manual Simulations for Demo Testing */}
+      {/* Manual Simulations for Demo / QA Testing
+           These buttons call the same handlers real sensors call,
+           with fixed test payloads. No fabricated randomness. */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Incident Simulator Controls</Text>
         <Text style={styles.simDescription}>
           Simulate background hardware and voice triggers to demo platform features.
         </Text>
-        
+
         <View style={styles.btnRow}>
-          <TouchableOpacity 
-            style={[styles.simBtn, { backgroundColor: '#3b82f6' }]} 
-            onPress={() => handleAudioTrigger(AudioDetection.mockDistressDetection())}
+          <TouchableOpacity
+            style={[styles.simBtn, { backgroundColor: '#3b82f6' }]}
+            onPress={() => handleAudioTrigger({
+              distress: true,
+              confidence: 91,
+              transcript: 'Help me please, someone help!',
+            })}
           >
             <Text style={styles.simBtnText}>Audio Threat</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.simBtn, { backgroundColor: '#f59e0b' }]} 
-            onPress={() => handleFallTrigger(MotionDetection.mockFallDetection())}
+          <TouchableOpacity
+            style={[styles.simBtn, { backgroundColor: '#f59e0b' }]}
+            onPress={() => handleFallTrigger({
+              fallDetected: true,
+              gForce: 3.12,
+              confidence: 88,
+            })}
           >
             <Text style={styles.simBtnText}>Fall Impact</Text>
           </TouchableOpacity>

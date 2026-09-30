@@ -26,11 +26,10 @@ class ContextScorer:
                               transcript: str = "") -> int:
         """
         Calculates safety risk rating using an intelligent weighted system:
-        - Distress Confidence: 50%
-        - Threat Level: 20%
+        - Distress Confidence: 55%
+        - Threat Level: 25%
         - Isolation: 10%
         - Night Time: 5%
-        - Motion Risk: 10%
         - Repetition / Escalation: 5%
         
         Calibrates the final raw score into expected target ranges:
@@ -98,14 +97,15 @@ class ContextScorer:
             print("[CONTEXT SCORER] Multiple monitoring alerts detected (+escalation)")
 
         # 4. Compute Weighted Score contributions
-        conf_contrib = distress_confidence * 0.50
+        # Motion (10%) dropped and redistributed: Distress Conf (50% -> 55%), Threat Base (20% -> 25%)
+        # This fixes the permanently depressed risk scores caused by an empty motion parameter.
+        conf_contrib = distress_confidence * 0.55
         
         threat_base = self.threat_mapping.get(threat_level, 0.0)
-        threat_contrib = threat_base * 0.20
+        threat_contrib = threat_base * 0.25
         
         isolation_contrib = 10.0 if is_isolated else 0.0
         night_contrib = 5.0 if is_night else 0.0
-        motion_contrib = 10.0 if has_motion_anomaly else 0.0
         escalation_contrib = 5.0 if has_escalation else 0.0
 
         raw_weighted_score = (
@@ -113,12 +113,11 @@ class ContextScorer:
             threat_contrib +
             isolation_contrib +
             night_contrib +
-            motion_contrib +
             escalation_contrib
         )
         
         print(f"[CONTEXT SCORER] Raw components - Conf: {conf_contrib:.2f}, Threat: {threat_contrib:.2f}, "
-              f"Iso: {isolation_contrib:.2f}, Night: {night_contrib:.2f}, Motion: {motion_contrib:.2f}, Esc: {escalation_contrib:.2f}")
+              f"Iso: {isolation_contrib:.2f}, Night: {night_contrib:.2f}, Esc: {escalation_contrib:.2f}")
         print(f"[CONTEXT SCORER] Raw Weighted Score: {raw_weighted_score:.2f}")
 
         # 5. Target Range Calibration Mapping

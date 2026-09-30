@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
 // Import and trigger environment variable validation & DB init
-import { initializeDatabase } from './config/db.js';
+import { initializeDatabase, getHealthStatus } from './config/db.js';
 
 // Routes imports
 import authRoutes from './routes/auth.routes.js';
@@ -68,7 +68,14 @@ app.use('/api/police', policeRoutes);
 
 // Base route for health checks
 app.get('/health', (req, res) => {
-  res.status(200).json({ success: true, status: 'ONLINE', service: 'ARIA Backend Server' });
+  const { dbMode, dbModeDescription } = getHealthStatus();
+  res.status(200).json({
+    success: true,
+    status: 'ONLINE',
+    service: 'ARIA Backend Server',
+    dbMode,
+    dbModeDescription,
+  });
 });
 
 // Setup socket connection handlers

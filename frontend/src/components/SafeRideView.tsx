@@ -82,8 +82,13 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
   const [simulationPath, setSimulationPath] = useState<{ lat: number; lng: number }[]>([]);
   const [currentPathIndex, setCurrentPathIndex] = useState(0);
   const [hasReachedDestination, setHasReachedDestination] = useState(false);
+  const [deviationDistance, setDeviationDistance] = useState<number>(0);
+  const [isVeeringOff, setIsVeeringOff] = useState(false);
 
   const simulationIntervalRef = useRef<number | null>(null);
+
+  // Threshold in km to detect route deviation (0.25 km = 250 meters)
+  const ROUTE_DEVIATION_THRESHOLD_KM = 0.25;
 
   // Haversine distance formula
   function haversineDistance(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -95,6 +100,46 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     const x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  }
+
+  // Calculates perpendicular distance from point p to segment between a and b
+  function distanceToSegment(
+    p: { lat: number; lng: number },
+    a: { lat: number; lng: number },
+    b: { lat: number; lng: number }
+  ): number {
+    const dx = b.lng - a.lng;
+    const dy = b.lat - a.lat;
+    const lenSq = dx * dx + dy * dy;
+
+    if (lenSq === 0) return haversineDistance(p, a);
+
+    // Project p onto line segment ab, clamping t between 0 and 1
+    const t = Math.max(0, Math.min(1, ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) / lenSq));
+    const projection = {
+      lat: a.lat + t * dy,
+      lng: a.lng + t * dx,
+    };
+
+    return haversineDistance(p, projection);
+  }
+
+  // Calculates cross-track distance from vehicle coordinate to intended route polyline
+  function calculateDistanceToRoute(
+    point: { lat: number; lng: number },
+    waypoints: { lat: number; lng: number }[]
+  ): number {
+    if (!waypoints || waypoints.length < 2) return 0;
+    let minDistance = Infinity;
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const d = distanceToSegment(point, waypoints[i], waypoints[i + 1]);
+      if (d < minDistance) {
+        minDistance = d;
+      }
+    }
+
+    return minDistance === Infinity ? 0 : minDistance;
   }
 
   // Generate a realistic grid-like route with turns
@@ -173,6 +218,8 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     setSimulationPath(path);
     setCurrentPathIndex(0);
     setHasReachedDestination(false);
+    setIsVeeringOff(false);
+    setDeviationDistance(0);
     setRideState('active');
   };
 
@@ -188,10 +235,22 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
           const currentPoint = simulationPath[nextIndex];
           setGpsCoords(currentPoint);
 
-          // Simulate unplanned route deviation at 60% of the journey
-          if (nextIndex === Math.floor(simulationPath.length * 0.6)) {
-            setShowAlert(true);
-            triggerDeviationMonitoring();
+          // Detect route deviation dynamically by comparing current position to planned route
+          const distanceOffRoute = calculateDistanceToRoute(currentPoint, routeWaypoints);
+          const isOffRoute = distanceOffRoute > ROUTE_DEVIATION_THRESHOLD_KM;
+
+          if (isOffRoute) {
+            setDeviationDistance(distanceOffRoute);
+            setShowAlert((prev) => {
+              if (!prev) {
+                console.log(`[SAFE_RIDE] Route deviation detected: ${(distanceOffRoute * 1000).toFixed(0)}m from intended route.`);
+                triggerDeviationMonitoring();
+              }
+              return true;
+            });
+          } else {
+            setDeviationDistance(0);
+            setShowAlert(false);
           }
 
           return nextIndex;
@@ -211,7 +270,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
         clearInterval(simulationIntervalRef.current);
       }
     };
-  }, [rideState, simulationPath]);
+  }, [rideState, simulationPath, routeWaypoints]);
 
   // Trigger backend monitoring session on deviation
   const triggerDeviationMonitoring = async () => {
@@ -221,6 +280,37 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     } catch (err) {
       console.warn('[SAFE_RIDE] Failed to trigger deviation monitoring session:', err);
     }
+  };
+
+  // Allows tester/user to simulate an off-route turn
+  const handleSimulateDeviation = () => {
+    if (!gpsCoords || simulationPath.length === 0) return;
+    const currentIndex = currentPathIndex;
+    const remaining = simulationPath.slice(currentIndex);
+    const deviated = remaining.map((pt, i) => {
+      const offsetLat = 0.005 + (i * 0.0007);
+      const offsetLng = -0.006 - (i * 0.0007);
+      return {
+        lat: pt.lat + offsetLat,
+        lng: pt.lng + offsetLng
+      };
+    });
+
+    const newPath = [...simulationPath.slice(0, currentIndex), ...deviated];
+    setSimulationPath(newPath);
+    setIsVeeringOff(true);
+  };
+
+  // Re-routes back to planned destination
+  const handleRejoinRoute = () => {
+    if (!gpsCoords || !destination) return;
+    const rejoinPath = generatePath(gpsCoords, destination);
+    setRouteWaypoints(rejoinPath);
+    setSimulationPath(rejoinPath);
+    setCurrentPathIndex(0);
+    setIsVeeringOff(false);
+    setShowAlert(false);
+    setDeviationDistance(0);
   };
 
   // Complete journey manually
@@ -272,6 +362,8 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     setCurrentPathIndex(0);
     setShowAlert(false);
     setHasReachedDestination(false);
+    setIsVeeringOff(false);
+    setDeviationDistance(0);
   };
 
   // Calculations for active trip
@@ -522,7 +614,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                     <div>
                       <p className="text-xs font-black text-primary uppercase tracking-wider">Unplanned Route Change</p>
                       <p className="text-[11px] text-on-surface-variant/90 leading-relaxed mt-0.5">
-                        Vehicle has deviated from the typical course. ARIA is analyzing details and active.
+                        Vehicle has deviated {deviationDistance > 0 ? `${(deviationDistance * 1000).toFixed(0)}m ` : ''}from planned course. ARIA elevated monitoring is active.
                       </p>
                     </div>
                   </div>
@@ -698,6 +790,33 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                 >
                   Cancel Journey Monitor
                 </button>
+
+                {/* Deviation Testing Controls */}
+                {!hasReachedDestination && (
+                  <div>
+                    {!isVeeringOff ? (
+                      <button
+                        type="button"
+                        onClick={handleSimulateDeviation}
+                        className="w-full h-11 border border-yellow-500/30 text-yellow-400 bg-yellow-500/[0.04] hover:bg-yellow-500/[0.08] rounded-xl font-bold text-[11px] uppercase tracking-wider active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        title="Diverges the simulation path off-route to test genuine geometric deviation detection"
+                      >
+                        <Compass className="w-3.5 h-3.5" />
+                        <span>Simulate Route Deviation (Test Anomaly)</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleRejoinRoute}
+                        className="w-full h-11 border border-secondary/30 text-secondary bg-secondary/[0.04] hover:bg-secondary/[0.08] rounded-xl font-bold text-[11px] uppercase tracking-wider active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        title="Recalculates route back to planned destination"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Rejoin Planned Route</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Central Pulse Emergency Trigger Button */}
                 <div className="flex flex-col items-center gap-2 pt-4 relative">

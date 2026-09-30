@@ -6,7 +6,7 @@ export class AIService {
   /**
    * Dispatches incident telemetry and audio data to the Python FastAPI analyzer
    */
-  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false }) {
+  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false, motionAnomaly = false, language = null }) {
     console.log(`[AI SERVICE INTEGRATOR] Dispatching audio to AI Engine: ${fileName}`);
 
     try {
@@ -19,7 +19,11 @@ export class AIService {
       formData.append('latitude', String(latitude || 0.0));
       formData.append('longitude', String(longitude || 0.0));
       formData.append('is_isolated', String(isIsolated));
+      formData.append('motion_anomaly', String(motionAnomaly));
       formData.append('timestamp', new Date().toISOString());
+      // Forward the user's preferred language so Whisper doesn't have to
+      // auto-detect on short clips (unreliable) and Hindi phrases are not mangled.
+      if (language) formData.append('language', language);
 
       const res = await axios.post(`${AI_ENGINE_URL}/analyze`, formData, {
         headers: {

@@ -93,6 +93,18 @@ export async function initializeDatabase() {
         END IF;
       END $$;
 
+      -- Idempotent migration: add language column (BCP-47 code, e.g. 'hi', 'en')
+      -- Used to pass an explicit language hint to Whisper instead of auto-detecting
+      -- on short audio clips, which is unreliable. Defaults to 'hi' (ARIA's primary locale).
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='users' AND column_name='language'
+        ) THEN
+          ALTER TABLE users ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'hi';
+        END IF;
+      END $$;
+
       CREATE TABLE IF NOT EXISTS emergency_contacts (
         id SERIAL PRIMARY KEY,
         user_id VARCHAR(50) REFERENCES users(id) ON DELETE CASCADE,
@@ -153,8 +165,38 @@ export async function initializeDatabase() {
     console.log('💚 [POSTGRESQL DB] Database schema migration executed successfully.');
     client.release();
   } catch (error) {
-    console.warn('\n⚠️ [POSTGRESQL DB] Connection/Migration failed. Switching to IN-MEMORY FALLBACK ADAPTER.');
+    if (process.env.NODE_ENV === 'production') {
+      // In production a safety-critical service MUST NOT silently continue
+      // without its database. Ephemeral disks (e.g. Render free tier) wipe
+      // every local file on restart, so the file-based fallback would cause
+      // permanent, silent data loss. Crash loudly so the platform restarts
+      // the container and alerts on-call responders.
+      console.error('\n🔴 [FATAL] PostgreSQL is unreachable in production. Refusing to start.');
+      console.error('   Cause:', error.message);
+      console.error('   Fix:   Ensure DATABASE_URL is correct and the database is accepting connections.');
+      process.exit(1);
+    }
+
+    // Development-only fallback: in-memory store backed by a local JSON file.
+    // This is intentionally NOT available in production (see above).
+    console.warn('\n⚠️ [POSTGRESQL DB] Connection/Migration failed.');
+    console.warn('   Running in IN-MEMORY FALLBACK mode (development only).');
+    console.warn('   ⚠️  All data will be lost on restart. Set NODE_ENV=production to disable this fallback.\n');
     dbMode = 'memory';
     loadMemoryStore();
   }
+}
+
+/**
+ * Returns the current storage mode and a human-readable description.
+ * Intended for use by the /health endpoint so the mode is observable externally.
+ */
+export function getHealthStatus() {
+  return {
+    dbMode,
+    dbModeDescription:
+      dbMode === 'postgres'
+        ? 'Connected to PostgreSQL'
+        : 'IN-MEMORY FALLBACK (development only – data is not persisted)',
+  };
 }

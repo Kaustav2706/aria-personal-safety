@@ -44,7 +44,26 @@ export default function MonitoringView({
   const streamRef = useRef<MediaStream | null>(null);
   const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  // Continuous audio recording with overlapping window buffer
+  const rollingChunksRef = useRef<{ blob: Blob; isFirst: boolean }[]>([]);
+  const webmHeaderRef = useRef<Blob | null>(null);
+
+  // Extracts the EBML container and tracks header from the initial WebM slice
+  // (the bytes before the first Cluster element tag [0x1F, 0x43, 0xB6, 0x75])
+  const extractWebMHeader = async (blob: Blob): Promise<Blob> => {
+    try {
+      const buffer = await blob.slice(0, 8192).arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.length - 4; i++) {
+        if (bytes[i] === 0x1f && bytes[i + 1] === 0x43 && bytes[i + 2] === 0xb6 && bytes[i + 3] === 0x75) {
+          return blob.slice(0, i);
+        }
+      }
+    } catch (e) {
+      console.warn('[MONITORING] Error extracting WebM container header:', e);
+    }
+    return blob.slice(0, 1024);
+  };
 
   // Web Audio API refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -93,20 +112,25 @@ export default function MonitoringView({
     return path;
   };
 
-  // GPS state
-  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
+  // GPS fix state — null means no fix has ever been obtained.
+  // NEVER falls back to invented coordinates; null is sent as unavailable.
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const gpsCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          const fresh = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          gpsCoordsRef.current = fresh;
+          setGpsCoords(fresh);
           setGpsFixOk(true);
           gpsFixTimeRef.current = Date.now();
           setGpsFixAge(0);
         },
         () => {
-          setGpsCoords({ lat: 37.7749, lng: -122.4194 });
+          // GPS unavailable — do NOT invent coordinates.
+          // The UI already shows "Location unavailable" / "No Fix" in this state.
           setGpsFixOk(false);
         }
       );
@@ -179,44 +203,55 @@ export default function MonitoringView({
         console.warn('[MONITORING] Web Audio API setup failed:', audioErr);
       }
 
-      // 3. Start recording
+      // 3. Start recording continuously with 1-second timeslices
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
           ? 'audio/webm;codecs=opus' 
           : 'audio/webm',
       });
       mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
+      rollingChunksRef.current = [];
+      webmHeaderRef.current = null;
 
-      mediaRecorder.ondataavailable = (e) => {
+      mediaRecorder.ondataavailable = async (e) => {
         if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
+          const isFirst = webmHeaderRef.current === null;
+          if (isFirst) {
+            webmHeaderRef.current = await extractWebMHeader(e.data);
+          }
+          rollingChunksRef.current.push({ blob: e.data, isFirst });
         }
       };
 
-      mediaRecorder.start();
+      // Request a slice every 1000ms. The recorder runs continuously and is
+      // NEVER stopped/restarted between chunks, avoiding dropped microphone frames.
+      mediaRecorder.start(1000);
 
-      // 4. Every 5 seconds: stop, upload chunk, restart
+      // 4. Overlapping window uploader: every 5 seconds, upload accumulated slices
+      // and retain the last 2 slices (~2 seconds) so consecutive windows overlap,
+      // guaranteeing words like "help" spoken across boundaries are never lost.
       chunkIntervalRef.current = setInterval(async () => {
-        if (mediaRecorderRef.current?.state === 'recording') {
-          mediaRecorderRef.current.stop();
-          // Wait for the last dataavailable
-          await new Promise<void>((resolve) => {
-            mediaRecorderRef.current!.onstop = () => resolve();
-          });
+        if (rollingChunksRef.current.length === 0) return;
 
-          // Upload collected chunks
-          if (chunksRef.current.length > 0) {
-            const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-            chunksRef.current = [];
-            await uploadChunk(blob, sid);
-          }
+        // Take accumulated slices for this upload window
+        const slicesToUpload = [...rollingChunksRef.current];
 
-          // Restart recording
-          if (streamRef.current && streamRef.current.active) {
-            mediaRecorderRef.current!.start();
-          }
+        // Retain the last 2 slices (approx 2s of audio) for cross-boundary overlap
+        rollingChunksRef.current = rollingChunksRef.current.slice(-2);
+
+        // Prepend WebM container/tracks header if this window doesn't include the first slice
+        const containsFirst = slicesToUpload.some((s) => s.isFirst);
+        let uploadBlob: Blob;
+
+        if (containsFirst) {
+          uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
+        } else if (webmHeaderRef.current) {
+          uploadBlob = new Blob([webmHeaderRef.current, ...slicesToUpload.map((s) => s.blob)], { type: 'audio/webm' });
+        } else {
+          uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
         }
+
+        await uploadChunk(uploadBlob, sid);
       }, 5000);
 
       // 5. Duration timer
@@ -242,24 +277,37 @@ export default function MonitoringView({
   const uploadChunk = async (blob: Blob, sid: string) => {
     setUploading(true);
     try {
-      // Get latest GPS
+      // Get latest GPS — use the freshly fetched fix directly and store in ref
+      // to avoid React state closure stale-value bugs.
+      let currentFix = gpsCoordsRef.current;
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
           navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000 })
         );
-        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        currentFix = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        gpsCoordsRef.current = currentFix;
+        setGpsCoords(currentFix);
         setGpsFixOk(true);
         gpsFixTimeRef.current = Date.now();
         setGpsFixAge(0);
       } catch {
-        // use existing coords; mark fix as stale (don't reset gpsFixOk — last known state is fine)
+        // use existing coords from ref; mark fix as stale (don't reset gpsFixOk — last known state is fine)
       }
 
       const formData = new FormData();
       formData.append('file', blob, `chunk_${Date.now()}.webm`);
-      formData.append('latitude', gpsCoords.lat.toString());
-      formData.append('longitude', gpsCoords.lng.toString());
+
+      // Only send real GPS coordinates. If no fix is available, send
+      // lat/lng = 0,0 with a location_unavailable flag so the backend
+      // and police dashboard can show "location unknown" instead of a wrong pin.
+      const lat = currentFix?.lat ?? 0;
+      const lng = currentFix?.lng ?? 0;
+      const locationUnavailable = currentFix === null;
+      formData.append('latitude', lat.toString());
+      formData.append('longitude', lng.toString());
+      formData.append('location_unavailable', String(locationUnavailable));
       formData.append('isIsolated', 'false');
+      formData.append('motion_anomaly', 'false');
       formData.append('sessionId', sid);
 
       const res = await monitoringService.uploadChunk(formData);
@@ -289,8 +337,9 @@ export default function MonitoringView({
             userId: '',
             status: 'active',
             triggerType: data.autoIncident.triggerType,
-            latitude: gpsCoords.lat,
-            longitude: gpsCoords.lng,
+            // Only populate coordinates if we have a real GPS fix.
+            latitude: currentFix?.lat ?? null,
+            longitude: currentFix?.lng ?? null,
             riskScore: data.autoIncident.riskScore,
             audioTranscript: data.transcript,
             createdAt: new Date().toISOString(),
@@ -334,6 +383,9 @@ export default function MonitoringView({
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+    mediaRecorderRef.current = null;
+    rollingChunksRef.current = [];
+    webmHeaderRef.current = null;
 
     // Stop microphone stream
     if (streamRef.current) {
@@ -369,6 +421,8 @@ export default function MonitoringView({
           audioContextRef.current.close();
         } catch (e) {}
       }
+      rollingChunksRef.current = [];
+      webmHeaderRef.current = null;
     };
   }, []);
 
@@ -652,7 +706,7 @@ export default function MonitoringView({
                 </div>
                 <div>
                   <span className="font-semibold text-[14px] text-on-surface">GNSS Tracking</span>
-                  {gpsFixOk === true && gpsFixAge !== null && (
+                  {gpsFixOk === true && gpsFixAge !== null && gpsCoords !== null && (
                     <p className="text-[10px] text-on-surface-variant/40 font-medium">
                       Fix {gpsFixAge < 60 ? `${gpsFixAge}s` : `${Math.floor(gpsFixAge / 60)}m`} ago
                       &nbsp;&middot;&nbsp;{gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)}

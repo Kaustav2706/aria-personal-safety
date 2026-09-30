@@ -23,9 +23,12 @@ class WhisperDetector:
         ]
         
         # Initialize WhisperModel
-        print("[WHISPER DETECTOR] Initializing Whisper model tiny.en on CPU...")
+        print("[WHISPER DETECTOR] Initializing Whisper model 'small' (multilingual) on CPU...")
         try:
-            self.model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+            # 'small' is the smallest multilingual Whisper model.
+            # 'tiny.en' was English-only — it silently mangled Hindi audio into
+            # English approximations, making all Hindi distress phrases dead code.
+            self.model = WhisperModel("small", device="cpu", compute_type="int8")
             print("[WHISPER DETECTOR] Whisper model initialized successfully.")
         except Exception as e:
             print(f"[WHISPER DETECTOR] Failed to initialize Whisper model: {e}")
@@ -34,18 +37,26 @@ class WhisperDetector:
         # Initialize TranscriptAnalyzer
         self.analyzer = TranscriptAnalyzer()
 
-    def transcribe_audio(self, file_path: str, original_filename: str = None) -> dict:
+    def transcribe_audio(self, file_path: str, original_filename: str = None, language: str = None) -> dict:
         """
         Transcribe audio file using faster-whisper.
-        Falls back to filename-based mock if file_path is invalid or transcription fails.
+
+        Args:
+            file_path:         Path to the temporary audio file.
+            original_filename: Original client filename (used for fallback mock).
+            language:          BCP-47 language code from the user's profile (e.g. 'hi', 'en').
+                               Pass this explicitly instead of relying on auto-detection,
+                               which is unreliable on short (<5 s) clips.
+                               If None, Whisper auto-detects (acceptable for longer audio).
         """
         transcript = None
-        
+
         # 1. Attempt real transcription
         if self.model and os.path.exists(file_path):
             try:
-                print(f"[WHISPER DETECTOR] Transcribing active audio file: {file_path}")
-                segments, info = self.model.transcribe(file_path, beam_size=5)
+                lang_hint = language if language else None
+                print(f"[WHISPER DETECTOR] Transcribing: {file_path} | language hint: {lang_hint or 'auto'}")
+                segments, info = self.model.transcribe(file_path, beam_size=5, language=lang_hint)
                 segments = list(segments)
                 
                 transcript_parts = []

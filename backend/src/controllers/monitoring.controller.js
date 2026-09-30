@@ -58,7 +58,8 @@ async function isInCooldown(userId) {
 // ═══════════════════════════════════════════════════════════════════════════
 export const analyzeChunk = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { latitude, longitude, isIsolated, timestamp, sessionId } = req.body;
+  const { latitude, longitude, isIsolated, motionAnomaly, motion_anomaly, timestamp, sessionId } = req.body;
+  const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
 
   console.log(`[MONITORING] Chunk received from user ${userId} at ${timestamp || new Date().toISOString()}`);
 
@@ -82,13 +83,23 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
   // 3. Reuse existing AIService — DO NOT create a second AI implementation
   console.log(`[MONITORING] Dispatching audio to AIService.analyzeAudioIncident(): ${req.file.originalname}`);
-  
+
+  // Resolve the user's preferred language. A lookup failure must never break
+  // the monitoring pipeline, so we catch silently and fall back to 'hi'.
+  let userLanguage = 'hi';
+  try {
+    const monitoringUser = await User.findById(userId);
+    if (monitoringUser?.language) userLanguage = monitoringUser.language;
+  } catch (_) { /* non-fatal — use default */ }
+
   const analysis = await AIService.analyzeAudioIncident({
     fileBuffer: req.file.buffer,
     fileName: req.file.originalname,
     latitude: parseFloat(latitude) || 0.0,
     longitude: parseFloat(longitude) || 0.0,
-    isIsolated: isIsolated === 'true' || isIsolated === true
+    isIsolated: isIsolated === 'true' || isIsolated === true,
+    motionAnomaly: hasMotionAnomaly,
+    language: userLanguage
   });
 
   const { distress, confidence, transcript, riskScore } = analysis;

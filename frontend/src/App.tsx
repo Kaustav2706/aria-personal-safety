@@ -270,9 +270,12 @@ export default function App() {
   // ── SOS trigger ─────────────────────────────────────────────────────────
   const handleTriggerSOS = async (triggerType: string = 'manual', extraInfo?: string, coords?: { lat: number; lng: number } | null) => {
     try {
-      // Get current GPS
-      let latitude = 0;
-      let longitude = 0;
+      // Get current GPS — attempt a fresh fix, but never invent coordinates.
+      // If GPS is unavailable, we send location_unavailable=true so the backend
+      // and police dashboard show "location unknown" rather than a wrong pin.
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+
       if (coords) {
         latitude = coords.lat;
         longitude = coords.lng;
@@ -284,17 +287,21 @@ export default function App() {
           latitude = pos.coords.latitude;
           longitude = pos.coords.longitude;
         } catch {
-          console.warn('[SOS] GPS unavailable, using defaults.');
+          console.warn('[SOS] GPS unavailable — incident will be filed without coordinates.');
         }
       }
 
+      const locationUnavailable = latitude === null || longitude === null;
+
       const formData = new FormData();
-      formData.append('latitude', latitude.toString());
-      formData.append('longitude', longitude.toString());
+      formData.append('latitude', (latitude ?? 0).toString());
+      formData.append('longitude', (longitude ?? 0).toString());
+      formData.append('location_unavailable', String(locationUnavailable));
       formData.append('triggerType', triggerType);
       if (extraInfo) {
         formData.append('audioTranscript', extraInfo);
       }
+
 
       const res = await incidentService.create(formData);
 
