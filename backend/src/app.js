@@ -8,7 +8,10 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
 // Import and trigger environment variable validation & DB init
+import { validateEnvironment } from './config/env.js';
 import { initializeDatabase, getHealthStatus } from './config/db.js';
+
+validateEnvironment();
 
 // Routes imports
 import authRoutes from './routes/auth.routes.js';
@@ -102,9 +105,10 @@ async function boot() {
   await initializeDatabase();
   
   server.listen(PORT, () => {
+    const activeUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
     console.log(`\n==========================================`);
     console.log(`🚀 ARIA Backend Server is running live on:`);
-    console.log(`   Local URL: http://localhost:${PORT}`);
+    console.log(`   Base URL: ${activeUrl}`);
     console.log(`==========================================\n`);
   });
 }

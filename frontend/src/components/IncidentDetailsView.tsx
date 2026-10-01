@@ -253,7 +253,14 @@ export default function IncidentDetailsView({ incident, onBack }: IncidentDetail
       <section className="flex flex-col gap-3.5 pt-4 pb-12">
         {reportUrl ? (
           <a 
-            href={reportUrl.startsWith('http') ? reportUrl : `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${reportUrl}`}
+            href={(() => {
+              const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+              if (apiBase && !apiBase.includes('localhost') && reportUrl.includes('localhost')) {
+                return reportUrl.replace(/^http:\/\/localhost:\d+/, apiBase);
+              }
+              if (reportUrl.startsWith('http')) return reportUrl;
+              return `${apiBase || 'http://localhost:5000'}${reportUrl.startsWith('/') ? '' : '/'}${reportUrl}`;
+            })()}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full h-13 bg-secondary text-on-secondary font-bold rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer shadow-lg text-xs uppercase tracking-wider"

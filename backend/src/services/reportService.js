@@ -1,21 +1,14 @@
 import PDFDocument from 'pdfkit';
 import jwt from 'jsonwebtoken';
+import { getBackendUrl } from '../config/env.js';
 
 export class ReportService {
   /**
    * Resolves the base URL for the backend service.
-   * Handles cloud reverse proxies (e.g. Render, Railway, Heroku) via x-forwarded-proto,
-   * environment overrides (APP_URL / BACKEND_URL), or local fallback.
+   * Strictly resolves from BACKEND_URL environment variable, request headers, or dev fallback.
    */
   static getBaseUrl(req) {
-    if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
-    if (process.env.BACKEND_URL) return process.env.BACKEND_URL.replace(/\/$/, '');
-    if (req) {
-      const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
-      const host = req.get('host');
-      if (host) return `${proto}://${host}`;
-    }
-    return `http://localhost:${process.env.PORT || 5000}`;
+    return getBackendUrl(req);
   }
 
   /**
@@ -120,7 +113,7 @@ export class ReportService {
     // Evidence Links
     doc.fontSize(11).font('Helvetica-Bold').text('Evidence Links:', 50, 485);
     const hostBase = baseUrl || this.getBaseUrl(null);
-    const evidenceUrl = `${hostBase}/uploads/evidence_${incident.id}.wav`;
+    const evidenceUrl = incident.audioUrl || `${hostBase}/uploads/evidence_${incident.id}.wav`;
     doc.fillColor('#3b82f6').font('Helvetica').text(evidenceUrl, 160, 485, { link: evidenceUrl });
     doc.fillColor('#1f2937');
 

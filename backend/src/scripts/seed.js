@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
+import { buildBackendUrl } from '../config/env.js';
 
 async function seed() {
   console.log('⚡ [SEEDER] Verifying database connection status...');
@@ -160,7 +161,7 @@ async function seed() {
       );
     }
 
-    const mockPdfUrl = `http://localhost:5000/api/reports/${incidentId}`;
+    const mockPdfUrl = buildBackendUrl(`/api/reports/${incidentId}`);
     await pool.query(
       `INSERT INTO reports (incident_id, report_url) VALUES ($1, $2)`,
       [incidentId, mockPdfUrl]

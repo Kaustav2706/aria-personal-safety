@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000';
+const getAIEngineUrl = () => {
+  if (process.env.AI_ENGINE_URL && process.env.AI_ENGINE_URL.trim()) {
+    return process.env.AI_ENGINE_URL.trim().replace(/\/$/, '');
+  }
+  return 'http://localhost:8000';
+};
+
+const AI_ENGINE_URL = getAIEngineUrl();
 
 export class AIService {
   /**

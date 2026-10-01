@@ -50,8 +50,17 @@ export default function ReportView() {
     setDownloading(true);
     try {
       const res = await axios.post(`${API_BASE}/police/report/generate`, { incidentId: id }, policeConfig());
-      setPdfLink(res.data.reportUrl);
-      window.open(res.data.reportUrl, '_blank');
+      let finalUrl = res.data.reportUrl;
+      try {
+        if (API_BASE && !API_BASE.includes('localhost') && finalUrl && finalUrl.includes('localhost')) {
+          const origin = new URL(API_BASE).origin;
+          finalUrl = finalUrl.replace(/^https?:\/\/localhost(:\d+)?/, origin);
+        }
+      } catch (e) {
+        // Fallback to original reportUrl if URL parsing encounters relative paths
+      }
+      setPdfLink(finalUrl);
+      window.open(finalUrl, '_blank');
       if (window.showToast) window.showToast('PDF report compiled successfully.', 'success');
     } catch (err) {
       console.error('Error generating PDF report:', err);

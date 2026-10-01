@@ -55,15 +55,10 @@ export function loadMemoryStore() {
   }
 }
 
-// Validate startup environment variables
-if (!process.env.JWT_SECRET) {
-  console.error('\n🔴 [STARTUP ERROR] JWT_SECRET environment variable is missing.');
-  process.exit(1);
-}
-if (!process.env.DATABASE_URL) {
-  console.error('\n🔴 [STARTUP ERROR] DATABASE_URL environment variable is missing.');
-  process.exit(1);
-}
+import { validateEnvironment } from './env.js';
+
+// Validate startup environment variables (JWT_SECRET, DATABASE_URL, and production BACKEND_URL)
+validateEnvironment();
 
 const { Pool } = pg;
 

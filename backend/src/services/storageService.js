@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildBackendUrl } from '../config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,8 +32,8 @@ export class StorageService {
     const localPath = path.join(localUploadsDir, fileName);
     fs.writeFileSync(localPath, fileBuffer);
     
-    // Return mock file access URL
-    const localUrl = `http://localhost:${process.env.PORT || 5000}/uploads/${fileName}`;
+    // Return file access URL built from BACKEND_URL environment variable
+    const localUrl = buildBackendUrl(`/uploads/${fileName}`);
     console.log(`[STORAGE SERVICE] File uploaded locally. Access URL: ${localUrl}`);
     return localUrl;
   }
