@@ -160,7 +160,7 @@ async function seed() {
       );
     }
 
-    const mockPdfUrl = `http://localhost:5000/uploads/reports/report_${incidentId}.pdf`;
+    const mockPdfUrl = `http://localhost:5000/api/reports/${incidentId}`;
     await pool.query(
       `INSERT INTO reports (incident_id, report_url) VALUES ($1, $2)`,
       [incidentId, mockPdfUrl]

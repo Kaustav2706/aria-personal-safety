@@ -3,6 +3,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -13,6 +14,7 @@ import { initializeDatabase, getHealthStatus } from './config/db.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import incidentRoutes from './routes/incident.routes.js';
+import reportRoutes, { handleLegacyReportDownload } from './routes/report.routes.js';
 import alertRoutes from './routes/alert.routes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import policeRoutes from './routes/police.routes.js';
@@ -21,10 +23,18 @@ import policeRoutes from './routes/police.routes.js';
 import { setupLiveTracking } from './sockets/liveTracking.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config();
+const rootEnv = path.resolve(__dirname, '../../.env');
+if (fs.existsSync(rootEnv)) {
+  dotenv.config({ path: rootEnv });
+}
+const backendEnv = path.resolve(__dirname, '../.env');
+if (fs.existsSync(backendEnv)) {
+  dotenv.config({ path: backendEnv });
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -51,8 +61,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// Dynamic on-demand report generation for legacy URLs so ephemeral disk wipe never causes 404s
+app.get('/uploads/reports/:filename', handleLegacyReportDownload);
 
-// Serve local uploads folder statically for PDF report access
+// Serve local uploads folder statically for evidence audio uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Save socket.io instance to context
@@ -62,6 +74,7 @@ app.set('io', io);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/incidents', incidentRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api', alertRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/police', policeRoutes);

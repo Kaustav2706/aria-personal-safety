@@ -1,12 +1,13 @@
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { ReportService } from '../services/reportService.js';
+import { streamReportForIncident } from './report.controller.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
 import { AIService } from '../services/aiService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { pool, dbMode } from '../config/db.js';
+import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 export const createIncident = asyncHandler(async (req, res) => {
   const userId = req.userId;
@@ -230,7 +231,7 @@ export const generateReport = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(incident.userId);
-  const pdfUrl = await ReportService.generateIncidentPDF(incident, user);
+  const pdfUrl = await ReportService.generateIncidentPDF(incident, user, { req });
 
   // Store report metadata in db
   try {
@@ -240,6 +241,15 @@ export const generateReport = asyncHandler(async (req, res) => {
          ON CONFLICT (incident_id) DO UPDATE SET report_url = $2`,
         [incidentId, pdfUrl]
       );
+    } else if (dbMode === 'memory') {
+      if (!memoryStore.reports) memoryStore.reports = [];
+      const existing = memoryStore.reports.find(r => r.incidentId === incidentId);
+      if (existing) {
+        existing.reportUrl = pdfUrl;
+      } else {
+        memoryStore.reports.push({ incidentId, reportUrl: pdfUrl, createdAt: new Date().toISOString() });
+      }
+      saveMemoryStore();
     }
   } catch (err) {
     console.error('[REPORT METADATA DB SAVE ERROR]:', err.message);
@@ -250,6 +260,11 @@ export const generateReport = asyncHandler(async (req, res) => {
     message: 'Incident report generated successfully.',
     reportUrl: pdfUrl
   });
+});
+
+export const getIncidentReport = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  await streamReportForIncident(id, req, res);
 });
 
 export const deleteIncident = asyncHandler(async (req, res) => {

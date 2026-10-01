@@ -23,6 +23,7 @@ import HistoryView from './components/HistoryView';
 import IncidentDetailsView from './components/IncidentDetailsView';
 import ProfileView from './components/ProfileView';
 import ContactsView from './components/ContactsView';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Nav and layout helpers
 import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTriangle, Radio, X } from 'lucide-react';
@@ -136,8 +137,10 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn('[APP] Failed to load profile:', err);
-      if (err.response?.status === 404) {
+      const status = err.response?.status;
+      if (status === 401 || status === 403 || status === 404) {
         authLogout();
+        disconnectSocket();
         setProfile(defaultProfile);
         setCurrentScreen('SECURE_LOGIN');
         setIncidentsLoading(false);
@@ -158,8 +161,15 @@ export default function App() {
         const mapped = incidentsRes.data.incidents.map(backendToIncidentItem);
         setIncidents(mapped);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[APP] Failed to load incidents:', err);
+      const status = err.response?.status;
+      if (status === 401 || status === 403) {
+        authLogout();
+        disconnectSocket();
+        setCurrentScreen('SECURE_LOGIN');
+        return;
+      }
     } finally {
       setIncidentsLoading(false);
     }
@@ -432,12 +442,21 @@ export default function App() {
       {/* Dynamic Screen View routing frame */}
       <div className="flex-1 w-full max-w-md mx-auto relative">
         
+        <ErrorBoundary onReset={() => setCurrentScreen('DASHBOARD')}>
         {/* Core Screen Layout Handlers */}
         {currentScreen === 'SPLASH' && (
-          <SplashView onComplete={() => {
+          <SplashView onComplete={async () => {
             if (isAuthenticated()) {
-              loadUserData();
-              setCurrentScreen('DASHBOARD');
+              try {
+                await loadUserData();
+                if (isAuthenticated()) {
+                  setCurrentScreen('DASHBOARD');
+                } else {
+                  setCurrentScreen('SECURE_LOGIN');
+                }
+              } catch {
+                setCurrentScreen('SECURE_LOGIN');
+              }
             } else {
               setCurrentScreen('ONBOARDING_1');
             }
@@ -654,6 +673,7 @@ export default function App() {
             onDeleteContact={handleDeleteContact}
           />
         )}
+        </ErrorBoundary>
 
         {/* Bottom Nav Bar Render */}
         {hasBottomNav && (

@@ -4,11 +4,20 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE_PATH = path.join(__dirname, '../../memory_db.json');
+
+// Load environment variables from cwd, backend/.env, or root .env
+dotenv.config();
+const rootEnv = path.resolve(__dirname, '../../../.env');
+if (fs.existsSync(rootEnv)) {
+  dotenv.config({ path: rootEnv });
+}
+const backendEnv = path.resolve(__dirname, '../../.env');
+if (fs.existsSync(backendEnv)) {
+  dotenv.config({ path: backendEnv });
+}
 
 // Centralized persistent memory cache fallback storage
 export const memoryStore = {

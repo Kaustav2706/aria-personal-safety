@@ -9,7 +9,7 @@ import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { ReportService } from '../services/reportService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { pool, dbMode } from '../config/db.js';
+import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
 /**
  * GET /api/police/incidents
@@ -117,7 +117,7 @@ export const generatePoliceReport = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(incident.userId);
-  const pdfUrl = await ReportService.generateIncidentPDF(incident, user);
+  const pdfUrl = await ReportService.generateIncidentPDF(incident, user, { req });
 
   // Store report metadata in db
   try {
@@ -127,6 +127,15 @@ export const generatePoliceReport = asyncHandler(async (req, res) => {
          ON CONFLICT (incident_id) DO UPDATE SET report_url = $2`,
         [incidentId, pdfUrl]
       );
+    } else if (dbMode === 'memory') {
+      if (!memoryStore.reports) memoryStore.reports = [];
+      const existing = memoryStore.reports.find(r => r.incidentId === incidentId);
+      if (existing) {
+        existing.reportUrl = pdfUrl;
+      } else {
+        memoryStore.reports.push({ incidentId, reportUrl: pdfUrl, createdAt: new Date().toISOString() });
+      }
+      saveMemoryStore();
     }
   } catch (err) {
     console.error('[REPORT METADATA DB SAVE ERROR]:', err.message);

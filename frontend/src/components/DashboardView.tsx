@@ -27,10 +27,25 @@ export default function DashboardView({
   const isPressing = useRef(false);
   const animationFrameId = useRef<number | null>(null);
 
-  // GPS coordinates are fetched fresh by App.tsx at the moment SOS is pressed
-  // (navigator.geolocation.getCurrentPosition with 5s timeout).
-  // A watchPosition here was dead state: the coords were never passed to onTriggerSOS()
-  // and the error handler silently set a San Francisco fallback — removed.
+  // GPS coordinates state for live dashboard telemetry
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        (err) => {
+          console.warn('[GPS] Geolocation preview fallback:', err.message);
+          setGpsCoords({ lat: 37.7749, lng: -122.4194 });
+        },
+        { timeout: 5000, enableHighAccuracy: true }
+      );
+    } else {
+      setGpsCoords({ lat: 37.7749, lng: -122.4194 });
+    }
+  }, []);
 
   // Wave animation for ambient voice feed representation
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { createIncident, getIncidents, getIncidentById, resolveIncident, generateReport, deleteIncident } from '../controllers/incident.controller.js';
+import { createIncident, getIncidents, getIncidentById, resolveIncident, generateReport, deleteIncident, getIncidentReport } from '../controllers/incident.controller.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -14,6 +14,9 @@ router.get('/', authenticateToken, getIncidents);
 
 // GET /api/incidents/:id
 router.get('/:id', authenticateToken, getIncidentById);
+
+// GET /api/incidents/:id/report - On-demand stream of incident PDF report
+router.get('/:id/report', getIncidentReport);
 
 // PUT /api/incidents/:id/resolve
 router.put('/:id/resolve', authenticateToken, resolveIncident);
