@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
@@ -9,8 +9,7 @@ import {
   User, 
   Phone, 
   Volume2, 
-  Play, 
-  Pause, 
+  VolumeX,
   Clock, 
   Crosshair, 
   FileText, 
@@ -28,8 +27,6 @@ export default function ReportView() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [pdfLink, setPdfLink] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef(null);
 
   useEffect(() => {
     fetchIncidentDetails();
@@ -70,17 +67,6 @@ export default function ReportView() {
     }
   };
 
-  const togglePlayAudio = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play().catch(e => console.warn('Audio playback simulation note:', e.message));
-      setIsPlaying(true);
-    }
-  };
-
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '40px 0' }}>
@@ -109,13 +95,18 @@ export default function ReportView() {
   const { incident, user } = data;
   const isHighRisk = incident.riskScore >= 70;
   const riskColor = isHighRisk ? 'var(--color-danger)' : incident.riskScore >= 40 ? 'var(--color-warning)' : 'var(--color-success)';
-  const mockAudioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+  const storedAudioUrl = incident.audioUrl || incident.audio_url || incident.audioFile || null;
+  let audioUrl = null;
+  if (storedAudioUrl) {
+    try {
+      audioUrl = new URL(storedAudioUrl, new URL(API_BASE, window.location.origin).origin).toString();
+    } catch {
+      audioUrl = storedAudioUrl;
+    }
+  }
 
   return (
     <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-      {/* Hidden audio player */}
-      <audio ref={audioRef} src={mockAudioUrl} onEnded={() => setIsPlaying(false)} style={{ display: 'none' }} />
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -207,34 +198,40 @@ export default function ReportView() {
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Volume2 size={16} style={{ color: 'var(--color-cyan)' }} />
+                {audioUrl ? <Volume2 size={16} style={{ color: 'var(--color-cyan)' }} /> : <VolumeX size={16} style={{ color: 'var(--text-muted)' }} />}
                 <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#fff' }}>Acoustic Voice Evidence</span>
               </div>
-              <button className="btn btn-ghost" onClick={togglePlayAudio} style={{ padding: '6px 14px', fontSize: '0.72rem', borderRadius: '6px', fontWeight: 800 }}>
-                {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-                {isPlaying ? 'Pause evidence' : 'Play evidence'}
-              </button>
             </div>
 
-            {/* Custom animated CSS waveform visualizer */}
-            <div className={`audio-waveform-container ${isPlaying ? 'playing' : ''}`}>
-              {Array.from({ length: 32 }).map((_, i) => (
-                <div key={i} className="waveform-bar" style={{ height: isPlaying ? undefined : `${Math.max(10, Math.sin(i * 0.4) * 40 + 50)}%` }} />
-              ))}
-            </div>
+            {audioUrl ? (
+              <audio controls preload="metadata" src={audioUrl} style={{ width: '100%' }}>
+                Your browser does not support audio playback.
+              </audio>
+            ) : (
+              <div style={{
+                padding: '14px 18px',
+                backgroundColor: 'var(--bg-primary)',
+                border: '1px dashed var(--border-color)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.85rem',
+                color: 'var(--text-muted)',
+              }}>
+                No audio recorded for this incident.
+              </div>
+            )}
 
             <div style={{
               padding: '14px 18px',
               backgroundColor: 'var(--bg-primary)',
               border: '1px solid var(--border-color)',
               borderRadius: 'var(--radius-md)',
-              borderLeft: '3.5px solid var(--color-cyan)',
+              borderLeft: `3.5px solid ${incident.audioTranscript ? 'var(--color-cyan)' : 'var(--text-muted)'}`,
               fontSize: '0.85rem',
               fontStyle: 'italic',
               color: 'var(--text-secondary)',
               lineHeight: 1.6,
             }}>
-              {incident.audioTranscript ? `"${incident.audioTranscript}"` : 'No voice distress text captured in this record session.'}
+              {incident.audioTranscript ? `"${incident.audioTranscript}"` : 'No voice transcript available for this incident.'}
             </div>
           </div>
 

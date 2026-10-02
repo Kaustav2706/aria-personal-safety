@@ -228,13 +228,7 @@ export default function IncidentLog() {
                     <div style={{ display: 'inline-flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
                       <button
                         className="btn btn-ghost"
-                        onClick={() => {
-                          if (inc.status === 'active') {
-                            navigate(`/map?incidentId=${inc.id}`);
-                          } else {
-                            navigate(`/reports/${inc.id}`);
-                          }
-                        }}
+                        onClick={() => navigate(`/reports/${inc.id}`)}
                         style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '6px', fontWeight: 800 }}
                       >
                         <FileText size={12} /> Dossier

@@ -6,6 +6,7 @@ import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
 import { AIService } from '../services/aiService.js';
+import { AudioEvidenceService } from '../services/audioEvidenceService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 
@@ -25,6 +26,8 @@ export const createIncident = asyncHandler(async (req, res) => {
 
   let finalTranscript = '';
   let finalRiskScore = 50; // default moderate score
+  let analysisAvailable = true;
+  let audioUrl = null;
   
   // 1. Process voice audio file upload if present
   if (req.file) {
@@ -36,13 +39,22 @@ export const createIncident = asyncHandler(async (req, res) => {
       longitude: parseFloat(longitude) || 0.0,
       isIsolated: isIsolated === 'true' || isIsolated === true,
       motionAnomaly: hasMotionAnomaly,
-      // Use the user's preferred language so Whisper doesn't auto-detect on
-      // short clips. Defaults to 'hi' — ARIA's primary target locale.
-      language: user.language || 'hi'
+      // Let Whisper identify the spoken language from the recording.
+      language: null
     });
 
-    finalTranscript = analysis.transcript;
-    finalRiskScore = analysis.riskScore;
+    analysisAvailable = analysis.available;
+    finalTranscript = analysis.transcript || '';
+    if (analysis.available) {
+      finalRiskScore = analysis.riskScore;
+    } else {
+      // A deliberate manual SOS must still alert responders if audio analysis fails.
+      let urgentScore = 78 + Math.floor(Math.random() * 5);
+      const currentHour = new Date().getHours();
+      if (currentHour >= 20 || currentHour < 5) urgentScore += 10;
+      if (isIsolated === 'true' || isIsolated === true) urgentScore += 10;
+      finalRiskScore = Math.min(urgentScore, 100);
+    }
   } else {
     // Basic context calculation if no audio upload was captured
     let calculatedScore = 50;
@@ -61,6 +73,14 @@ export const createIncident = asyncHandler(async (req, res) => {
     finalTranscript = req.body.audioTranscript || '';
   }
 
+  if (req.file) {
+    try {
+      audioUrl = await AudioEvidenceService.save(req.file);
+    } catch (err) {
+      console.error('[INCIDENT CONTROLLER] Failed to persist audio evidence:', err.message);
+    }
+  }
+
   // 2. Save incident to PostgreSQL
   const incident = await Incident.create({
     userId,
@@ -69,7 +89,8 @@ export const createIncident = asyncHandler(async (req, res) => {
     latitude: parseFloat(latitude) || 0.0,
     longitude: parseFloat(longitude) || 0.0,
     riskScore: finalRiskScore,
-    audioTranscript: finalTranscript
+    audioTranscript: finalTranscript,
+    audioUrl
   });
 
   // 3. Notify Emergency Contacts and Police Dispatch
@@ -107,7 +128,8 @@ export const createIncident = asyncHandler(async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: 'Incident registered and safety protocols deployed',
+    message: analysisAvailable ? 'Incident registered and safety protocols deployed' : 'Incident registered. AI analysis unavailable; automatic audio detection is not running.',
+    analysisAvailable,
     incident
   });
 });

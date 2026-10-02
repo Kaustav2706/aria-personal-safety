@@ -13,7 +13,7 @@ class ContextScorer:
             "knife", "gun", "attack", "kill", "kidnap", "rape"
         ]
         self.escalation_words = [
-            "help", "bachao", "stop", "please", "madad"
+            "help", "bachao", "stop", "please", "madad", "बचाओ", "मदद", "रुको", "प्लीज़"
         ]
 
     def calculate_risk_score(self, 

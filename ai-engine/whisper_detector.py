@@ -1,41 +1,35 @@
 import os
-import random
-import math
-from language_support import scan_text_for_distress
-from faster_whisper import WhisperModel
 from transcript_analyzer import TranscriptAnalyzer
+from threading import Lock
+
+try:
+    from faster_whisper import WhisperModel
+except (ImportError, OSError):
+    WhisperModel = None
 
 class WhisperDetector:
     def __init__(self):
-        # Setup mock candidates for fallback/demo randomization
-        self.distress_candidates = [
-            "Help me please! Stop!",
-            "Bachao! Mujhse door raho!",
-            "Leave me alone, help!",
-            "Madad karo! Koi hai?",
-            "No, stop it! Don't touch me!"
-        ]
-        self.safe_candidates = [
-            "Hello, I am on my way home now.",
-            "Yes, I will reach in about ten minutes.",
-            "The weather is quite pleasant tonight.",
-            "I'm just walking down the main street."
-        ]
-        
         # Initialize WhisperModel
         print("[WHISPER DETECTOR] Initializing Whisper model 'small' (multilingual) on CPU...")
         try:
             # 'small' is the smallest multilingual Whisper model.
             # 'tiny.en' was English-only — it silently mangled Hindi audio into
             # English approximations, making all Hindi distress phrases dead code.
-            self.model = WhisperModel("small", device="cpu", compute_type="int8")
-            print("[WHISPER DETECTOR] Whisper model initialized successfully.")
+            self.model = WhisperModel("small", device="cpu", compute_type="int8") if WhisperModel else None
+            if self.model:
+                print("[WHISPER DETECTOR] Whisper model initialized successfully.")
+            else:
+                print("[WHISPER DETECTOR] faster-whisper is not installed; analysis is unavailable.")
         except Exception as e:
             print(f"[WHISPER DETECTOR] Failed to initialize Whisper model: {e}")
             self.model = None
             
         # Initialize TranscriptAnalyzer
         self.analyzer = TranscriptAnalyzer()
+        self._transcription_lock = Lock()
+
+    def is_available(self) -> bool:
+        return self.model is not None
 
     def transcribe_audio(self, file_path: str, original_filename: str = None, language: str = None) -> dict:
         """
@@ -43,21 +37,30 @@ class WhisperDetector:
 
         Args:
             file_path:         Path to the temporary audio file.
-            original_filename: Original client filename (used for fallback mock).
-            language:          BCP-47 language code from the user's profile (e.g. 'hi', 'en').
-                               Pass this explicitly instead of relying on auto-detection,
-                               which is unreliable on short (<5 s) clips.
-                               If None, Whisper auto-detects (acceptable for longer audio).
+            original_filename: Original client filename, used for diagnostic logging only.
+            language:          Optional explicit BCP-47 hint. None lets the multilingual
+                               model detect the spoken language from the audio itself.
         """
-        transcript = None
+        transcript = ''
 
         # 1. Attempt real transcription
         if self.model and os.path.exists(file_path):
             try:
                 lang_hint = language if language else None
                 print(f"[WHISPER DETECTOR] Transcribing: {file_path} | language hint: {lang_hint or 'auto'}")
-                segments, info = self.model.transcribe(file_path, beam_size=5, language=lang_hint)
-                segments = list(segments)
+                with self._transcription_lock:
+                    segments, info = self.model.transcribe(
+                        file_path,
+                        beam_size=1,
+                        language=lang_hint,
+                        vad_filter=True,
+                        condition_on_previous_text=False
+                    )
+                    segments = list(segments)
+                print(
+                    f"[WHISPER DETECTOR] Detected language: {info.language} "
+                    f"(confidence={info.language_probability:.2f})"
+                )
                 
                 transcript_parts = []
                 for segment in segments:
@@ -68,30 +71,19 @@ class WhisperDetector:
                 
                 if raw_transcript:
                     transcript = raw_transcript
-                    print(f"[WHISPER DETECTOR] Real transcript parsed successfully: \"{transcript}\"")
+                    print(f"[WHISPER DETECTOR] Real transcript parsed successfully: {ascii(transcript)}")
             except Exception as e:
                 print(f"[WHISPER DETECTOR] Real transcription failed (possibly invalid audio format): {e}")
-                print("[WHISPER DETECTOR] Falling back to filename-based mock logic.")
-
-        # 2. Fallback if transcription failed, returned empty, or model not initialized
-        if not transcript:
-            # Use original filename or file path to check for fallback cues
-            filename_to_check = original_filename or os.path.basename(file_path)
-            file_name_lower = filename_to_check.lower()
+                return {"available": False, "transcript": "", "distress_flagged": False, "confidence": 0.0, "threatLevel": "UNAVAILABLE"}
+        elif not self.model or not os.path.exists(file_path):
+            return {"available": False, "transcript": "", "distress_flagged": False, "confidence": 0.0, "threatLevel": "UNAVAILABLE"}
             
-            if "distress" in file_name_lower or "sos" in file_name_lower or "bachao" in file_name_lower or "help" in file_name_lower:
-                transcript = random.choice(self.distress_candidates)
-            elif "safe" in file_name_lower:
-                transcript = random.choice(self.safe_candidates)
-            else:
-                transcript = random.choice(self.distress_candidates + self.safe_candidates)
-            print(f"[WHISPER DETECTOR] Mock fallback transcript: \"{transcript}\"")
-            
-        # 3. Perform Transcript Intelligence analysis
+        # Perform transcript intelligence analysis using only recognized audio.
         analysis = self.analyzer.analyze(transcript)
         print(f"[WHISPER DETECTOR] Transcript Intelligence -> Distress: {analysis['distress']} | Confidence: {analysis['confidence']}% | Threat Level: {analysis['threatLevel']}")
         
         return {
+            "available": True,
             "transcript": transcript,
             "distress_flagged": analysis["distress"],
             "confidence": analysis["confidence"],

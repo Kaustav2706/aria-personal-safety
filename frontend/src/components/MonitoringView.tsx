@@ -28,6 +28,7 @@ export default function MonitoringView({
   const [transcript, setTranscript] = useState('Waiting for analysis...');
   const [distressDetected, setDistressDetected] = useState(false);
   const [chunkCount, setChunkCount] = useState(0);
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
 
   // Sensor health state — driven by real events, not hardcoded strings
   const [gpsFixAge, setGpsFixAge] = useState<number | null>(null);      // seconds since last fix
@@ -74,6 +75,22 @@ export default function MonitoringView({
   // Risk history — one real point per chunk analysis, max 20 points kept
   // Seeded with a flat baseline so the chart isn't empty before monitoring starts
   const [riskHistory, setRiskHistory] = useState<number[]>([]);
+  const uploadInProgressRef = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkAIHealth = async () => {
+      try {
+        const response = await monitoringService.health();
+        if (mounted) setAiAvailable(response.data?.ai?.status === 'ONLINE');
+      } catch {
+        if (mounted) setAiAvailable(false);
+      }
+    };
+    checkAIHealth();
+    const interval = setInterval(checkAIHealth, 10000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   // GPS fix age ticker — increments every second after a successful fix so the
   // Sensor Health panel can show how stale the position reading is.
@@ -275,6 +292,8 @@ export default function MonitoringView({
 
   // ── Upload Chunk ──────────────────────────────────────────────────────────
   const uploadChunk = async (blob: Blob, sid: string) => {
+    if (uploadInProgressRef.current) return;
+    uploadInProgressRef.current = true;
     setUploading(true);
     try {
       // Get latest GPS — use the freshly fetched fix directly and store in ref
@@ -313,6 +332,17 @@ export default function MonitoringView({
       const res = await monitoringService.uploadChunk(formData);
       const data = res.data as ChunkAnalysis;
 
+      if (data.analysisAvailable === false) {
+        setAiAvailable(false);
+        setTranscript(data.message || 'AI analysis unavailable. Automatic audio detection is not running.');
+        setConfidence(0);
+        setDistressDetected(false);
+        setLastUploadOk(true);
+        return;
+      }
+
+      setAiAvailable(true);
+
       if (data.success) {
         lastBackendConfidenceRef.current = data.confidence;
         setConfidence(data.confidence);
@@ -350,6 +380,7 @@ export default function MonitoringView({
       console.warn('[MONITORING] Chunk upload failed:', err.message);
       setLastUploadOk(false);
     } finally {
+      uploadInProgressRef.current = false;
       setUploading(false);
     }
   };
@@ -446,6 +477,13 @@ export default function MonitoringView({
         </div>
         <h2 className="text-[28px] font-black text-on-surface tracking-tight">System Monitoring</h2>
       </header>
+
+      {aiAvailable === false && (
+        <div role="status" className="flex items-start gap-2.5 p-3.5 rounded-xl bg-error-container/15 border border-error/20 mb-4">
+          <AlertTriangle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+          <p className="text-sm text-on-surface">AI analysis unavailable. Automatic audio detection is not running.</p>
+        </div>
+      )}
 
       {/* Error Banner */}
       {error && (

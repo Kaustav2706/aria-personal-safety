@@ -1,16 +1,30 @@
 import os
 import tempfile
+from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
+from starlette.concurrency import run_in_threadpool
 
 # Services imports
 from whisper_detector import WhisperDetector
 from tone_classifier import ToneClassifier
 from context_scorer import ContextScorer
 
-#gets AI_ENGINE_SECRET
-AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET")
+# Load the engine's local .env for direct `uvicorn main:app` starts. Values
+# already supplied by the hosting environment take precedence.
+_local_env_file = Path(__file__).with_name(".env")
+if _local_env_file.is_file():
+    for _line in _local_env_file.read_text(encoding="utf-8-sig").splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _key, _value = _line.split("=", 1)
+        os.environ.setdefault(_key.strip(), _value.strip().strip("\"'") )
+
+# gets AI_ENGINE_SECRET
+AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET", "aria-local-dev-secret-key-2024")
+# AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET")
 if not AI_ENGINE_SECRET:
     raise RuntimeError("AI_ENGINE_SECRET is not set. Refusing to start.")
 
@@ -42,6 +56,15 @@ scorer = ContextScorer()
 def read_root():
     return {"status": "ONLINE", "message": "ARIA AI Engine running."}
 
+@app.get("/health")
+def health_check():
+    ready = whisper.is_available()
+    return {
+        "status": "ONLINE" if ready else "DEGRADED",
+        "service": "ARIA AI Engine",
+        "analysisReady": ready
+    }
+
 @app.post("/analyze")
 async def analyze_incident_audio(
     file: UploadFile = File(...),
@@ -64,6 +87,9 @@ async def analyze_incident_audio(
     if x_internal_secret != AI_ENGINE_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    if not whisper.is_available():
+        raise HTTPException(status_code=503, detail="AI analysis unavailable: speech model is not ready.")
+
     print(f"\n[AI ENGINE] Processing request for file: {file.filename}")
     print(f"[AI ENGINE] GPS Location: Lat {latitude}, Lng {longitude}")
     print(f"[AI ENGINE] Timestamp: {timestamp} | Isolated Area: {is_isolated}")
@@ -80,10 +106,26 @@ async def analyze_incident_audio(
             temp_file_path = temp_file.name
 
         # 1. Run Whisper transcription, passing the user's preferred language
-        whisper_result = whisper.transcribe_audio(temp_file_path, original_filename=file.filename, language=language)
+        whisper_result = await run_in_threadpool(
+            whisper.transcribe_audio,
+            temp_file_path,
+            original_filename=file.filename,
+            # The caller's profile/UI language is not necessarily the spoken
+            # language. Use Whisper's multilingual audio detection by default.
+            language=None
+        )
+        if not whisper_result.get("available", False):
+            raise HTTPException(status_code=503, detail="AI analysis unavailable: audio transcription failed.")
 
         # 2. Run Acoustic classifier with actual audio file path to detect shouting/RMS volume
-        tone_conf = tone.classify_voice_tone(temp_file_path, original_filename=file.filename, distress_flagged=whisper_result["distress_flagged"])
+        tone_conf = await run_in_threadpool(
+            tone.classify_voice_tone,
+            temp_file_path,
+            original_filename=file.filename,
+            distress_flagged=whisper_result["distress_flagged"]
+        )
+        if tone_conf is None:
+            raise HTTPException(status_code=503, detail="AI analysis unavailable: audio signal could not be decoded.")
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
@@ -123,13 +165,13 @@ async def analyze_incident_audio(
     print(f"[AI ENGINE] Result -> distress={is_distress}, conf={combined_confidence}%, risk={risk_rating}%, threatLevel={threat_level}\n")
 
     return {
-        "distress": is_distress,
-        "confidence": combined_confidence,
-        "transcript": transcript,
-        "riskScore": risk_rating,
-        "risk_score": risk_rating,
-        "threatLevel": threat_level,
-        "threat_level": threat_level
+        "distress": bool(is_distress),
+        "confidence": float(combined_confidence),
+        "transcript": str(transcript),
+        "riskScore": int(risk_rating),
+        "risk_score": int(risk_rating),
+        "threatLevel": str(threat_level),
+        "threat_level": str(threat_level)
     }
 
 if __name__ == "__main__":
