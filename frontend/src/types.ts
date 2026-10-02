@@ -103,6 +103,8 @@ export interface BackendIncident {
 /** Response from POST /api/monitoring/chunk */
 export interface ChunkAnalysis {
   success: boolean;
+  analysisAvailable?: boolean;
+  message?: string;
   distress: boolean;
   confidence: number;
   transcript: string;

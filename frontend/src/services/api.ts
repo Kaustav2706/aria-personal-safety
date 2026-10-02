@@ -84,10 +84,15 @@ export const profileService = {
 };
 
 export const monitoringService = {
+  health: () => api.get('/api/health', {
+    params: { _healthCheck: Date.now() },
+    headers: { 'Cache-Control': 'no-store' },
+    timeout: 6000,
+  }),
   startSession: () => api.post('/api/monitoring/start'),
   uploadChunk: (formData: FormData) =>
     api.post('/api/monitoring/chunk', formData, {
-      timeout: 15000,
+      timeout: 40000,
     }),
   stopSession: (sessionId: string) =>
     api.post('/api/monitoring/stop', { sessionId }),

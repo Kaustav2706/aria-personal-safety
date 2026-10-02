@@ -125,8 +125,11 @@ export async function initializeDatabase() {
         longitude DOUBLE PRECISION NOT NULL,
         risk_score INTEGER DEFAULT 0,
         audio_transcript TEXT,
+        audio_url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS audio_url TEXT;
 
       CREATE TABLE IF NOT EXISTS location_history (
         id SERIAL PRIMARY KEY,

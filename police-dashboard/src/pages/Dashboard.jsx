@@ -17,6 +17,7 @@ import {
   Zap, 
   Eye,
   Volume2,
+  FileText,
   Trash2
 } from 'lucide-react';
 
@@ -391,6 +392,16 @@ export default function Dashboard() {
                         title="View Dossier Report"
                       >
                         <CheckCircle2 size={22} style={{ color: 'var(--color-success)', opacity: 0.9 }} />
+                      </button>
+                    )}
+                    {(inc.audioTranscript || inc.audioUrl || inc.audio_url) && (
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => navigate(`/reports/${inc.id}`)}
+                        style={{ padding: '8px 10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                        title="View incident dossier and transcript"
+                      >
+                        <FileText size={14} /> Dossier
                       </button>
                     )}
                     <button

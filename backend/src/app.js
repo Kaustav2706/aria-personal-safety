@@ -25,6 +25,7 @@ import policeRoutes from './routes/police.routes.js';
 // Sockets and Middleware imports
 import { setupLiveTracking } from './sockets/liveTracking.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { AIService } from './services/aiService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,6 +93,13 @@ app.get('/health', (req, res) => {
     dbMode,
     dbModeDescription,
   });
+});
+
+app.get('/api/health', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { dbMode, dbModeDescription } = getHealthStatus();
+  const ai = await AIService.checkHealth();
+  res.status(200).json({ success: true, status: 'ONLINE', service: 'ARIA Backend Server', dbMode, dbModeDescription, ai });
 });
 
 // Setup socket connection handlers

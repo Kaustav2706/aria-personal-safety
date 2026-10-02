@@ -403,15 +403,14 @@ export default function LiveMap() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-              {selectedIncident.status === 'active' ? (
+              {selectedIncident.status === 'active' && (
                 <button className="btn btn-success" onClick={handleResolveSelected} style={{ width: '100%', justifyContent: 'center', borderRadius: '8px', fontWeight: 800 }}>
                   <CheckCircle2 size={14} /> Resolve Beacon
                 </button>
-              ) : (
-                <button className="btn btn-ghost" onClick={() => navigate(`/reports/${selectedIncident.id}`)} style={{ width: '100%', justifyContent: 'center', borderRadius: '8px', fontWeight: 800 }}>
-                  View Report Dossier
-                </button>
               )}
+              <button className="btn btn-ghost" onClick={() => navigate(`/reports/${selectedIncident.id}`)} style={{ width: '100%', justifyContent: 'center', borderRadius: '8px', fontWeight: 800 }}>
+                View Threat Dossier
+              </button>
               <button 
                 className="btn btn-danger" 
                 onClick={(e) => handleDeleteSelected(selectedIncident.id, e)} 

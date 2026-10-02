@@ -81,12 +81,14 @@ twilio-credentials*
 # ==========================================
 backend/uploads/reports/*
 backend/uploads/audio/*
+backend/uploads/evidence/*
 *.pdf
 *.wav
 *.mp3
 *.m4a
 !backend/uploads/reports/.gitkeep
 !backend/uploads/audio/.gitkeep
+!backend/uploads/evidence/.gitkeep
 
 # ==========================================
 # IDE

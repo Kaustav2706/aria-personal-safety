@@ -1,7 +1,6 @@
 import av
 import numpy as np
 import os
-import random
 
 class ToneClassifier:
     def __init__(self):
@@ -41,15 +40,9 @@ class ToneClassifier:
             print(f"[TONE CLASSIFIER] Failed to calculate real audio RMS: {e}")
             rms_val = None
 
-        # Fallback if we couldn't measure RMS (e.g., empty chunk or decoding issue)
+        # An undecodable/empty recording cannot support an acoustic assessment.
         if rms_val is None or rms_val == 0.0:
-            file_name_lower = (original_filename or "").lower()
-            if distress_flagged or "distress" in file_name_lower or "sos" in file_name_lower or "shout" in file_name_lower:
-                return round(random.uniform(85.0, 98.0), 2)
-            elif "safe" in file_name_lower:
-                return round(random.uniform(5.0, 20.0), 2)
-            else:
-                return round(random.uniform(15.0, 45.0), 2)
+            return None
 
         # Real audio amplitude matching:
         # Normal conversation volume typically sits below 1800 RMS.

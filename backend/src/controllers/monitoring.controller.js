@@ -2,59 +2,41 @@ import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { MonitoringSession } from '../models/MonitoringSession.model.js';
 import { AIService } from '../services/aiService.js';
+import { AudioEvidenceService } from '../services/audioEvidenceService.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { pool, dbMode } from '../config/db.js';
 
 // ── In-memory cooldown tracker ──────────────────────────────────────────────
-// Tracks the last auto-incident creation timestamp per user to enforce a
-// 5-minute cooldown window, preventing duplicate incidents from rapid chunks.
+// Reuses an active incident during the cooldown window to avoid duplicates
+// without dropping subsequent high-risk detections.
 const INCIDENT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const lastAutoIncidentMap = new Map();
 
 /**
- * Checks whether a user is within the incident cooldown window.
- * Also checks the database for recent incidents as a secondary guard.
+ * Finds an active monitoring incident for the user within the cooldown window.
  * @param {string} userId
- * @returns {Promise<boolean>} true if still in cooldown (should NOT create incident)
+ * @returns {Promise<object|null>} incident to reuse, or null if a new one is needed
  */
-async function isInCooldown(userId) {
-  // Check in-memory cooldown first (fast path)
-  const lastCreated = lastAutoIncidentMap.get(userId);
-  if (lastCreated && (Date.now() - lastCreated) < INCIDENT_COOLDOWN_MS) {
-    return true;
-  }
-
-  // Secondary check: query the database for recent incidents from this user
+async function findCooldownIncident(userId) {
+  const recentCutoff = Date.now() - INCIDENT_COOLDOWN_MS;
   try {
-    if (dbMode === 'postgres') {
-      const res = await pool.query(
-        `SELECT id FROM incidents 
-         WHERE user_id = $1 AND trigger_type = 'monitoring' 
-         AND created_at > NOW() - INTERVAL '5 minutes' 
-         LIMIT 1`,
-        [userId]
-      );
-      if (res.rows.length > 0) {
-        // Sync the in-memory tracker
-        lastAutoIncidentMap.set(userId, Date.now());
-        return true;
-      }
-    }
+    const incidents = await Incident.findByUserId(userId);
+    return incidents.find((incident) =>
+      incident.triggerType === 'monitoring' &&
+      incident.status === 'active' &&
+      new Date(incident.createdAt).getTime() >= recentCutoff
+    ) || null;
   } catch (err) {
-    // If DB check fails, rely on in-memory tracker only
-    console.warn('[MONITORING] DB cooldown check failed, using in-memory only:', err.message);
+    console.warn('[MONITORING] Could not check for an active cooldown incident:', err.message);
+    return null;
   }
-
-  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/monitoring/chunk
 // Accepts a short audio chunk, runs AI analysis, and auto-creates an
-// incident if thresholds are met (with 5-minute per-user cooldown).
+// incident if thresholds are met (reusing an active incident for 5 minutes).
 // ═══════════════════════════════════════════════════════════════════════════
 export const analyzeChunk = asyncHandler(async (req, res) => {
   const userId = req.userId;
@@ -84,13 +66,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
   // 3. Reuse existing AIService — DO NOT create a second AI implementation
   console.log(`[MONITORING] Dispatching audio to AIService.analyzeAudioIncident(): ${req.file.originalname}`);
 
-  // Resolve the user's preferred language. A lookup failure must never break
-  // the monitoring pipeline, so we catch silently and fall back to 'hi'.
-  let userLanguage = 'hi';
-  try {
-    const monitoringUser = await User.findById(userId);
-    if (monitoringUser?.language) userLanguage = monitoringUser.language;
-  } catch (_) { /* non-fatal — use default */ }
+  // Let Whisper identify the spoken language; profile locale may differ from audio.
 
   const analysis = await AIService.analyzeAudioIncident({
     fileBuffer: req.file.buffer,
@@ -99,10 +75,20 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     longitude: parseFloat(longitude) || 0.0,
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
-    language: userLanguage
+    language: null,
+    timeoutMs: 30000
   });
 
   const { distress, confidence, transcript, riskScore } = analysis;
+
+  if (!analysis.available) {
+    return res.status(200).json({
+      success: true,
+      analysisAvailable: false,
+      message: analysis.message,
+      autoIncident: null
+    });
+  }
 
   console.log(`[MONITORING] Analysis complete — User: ${userId} | Risk: ${riskScore} | Distress: ${distress} | Confidence: ${confidence}`);
 
@@ -112,17 +98,20 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
   let autoIncident = null;
 
   if (shouldTrigger) {
-    console.log(`[MONITORING] Threat threshold met for user ${userId}. Checking cooldown...`);
+    console.log(`[MONITORING] Threat threshold met for user ${userId}. Checking for an active incident...`);
 
-    const cooldownActive = await isInCooldown(userId);
+    const existingIncident = await findCooldownIncident(userId);
 
-    if (cooldownActive) {
-      console.log(`[MONITORING] Cooldown active for user ${userId}. Skipping auto-incident creation (last incident < 5 minutes ago).`);
+    if (existingIncident) {
+      autoIncident = {
+        incidentId: existingIncident.id,
+        riskScore: existingIncident.riskScore,
+        triggerType: existingIncident.triggerType,
+        reused: true
+      };
+      console.log(`[MONITORING] Reusing active incident ${existingIncident.id} for high-risk detection.`);
     } else {
       console.log(`[MONITORING] Creating auto-incident for user ${userId}...`);
-
-      // Record cooldown timestamp BEFORE async work to prevent race conditions
-      lastAutoIncidentMap.set(userId, Date.now());
 
       try {
         // Lookup user for notification services
@@ -134,6 +123,13 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           // This mirrors incident.controller.js lines 56-97 exactly,
           // using the same models and services without duplication.
 
+          let audioUrl = null;
+          try {
+            audioUrl = await AudioEvidenceService.save(req.file);
+          } catch (err) {
+            console.error('[MONITORING] Failed to persist incident audio evidence:', err.message);
+          }
+
           const incident = await Incident.create({
             userId,
             status: 'active',
@@ -141,7 +137,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
             latitude: parseFloat(latitude) || 0.0,
             longitude: parseFloat(longitude) || 0.0,
             riskScore,
-            audioTranscript: transcript
+            audioTranscript: transcript,
+            audioUrl
           });
 
           console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%)`);
@@ -201,6 +198,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
   // 5. Return analysis results
   return res.status(200).json({
     success: true,
+    analysisAvailable: true,
     distress,
     confidence,
     transcript,
