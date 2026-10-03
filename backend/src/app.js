@@ -21,6 +21,7 @@ import reportRoutes, { handleLegacyReportDownload } from './routes/report.routes
 import alertRoutes from './routes/alert.routes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import policeRoutes from './routes/police.routes.js';
+import evidenceRoutes from './routes/evidence.routes.js';
 
 // Sockets and Middleware imports
 import { setupLiveTracking } from './sockets/liveTracking.js';
@@ -40,19 +41,47 @@ if (fs.existsSync(backendEnv)) {
   dotenv.config({ path: backendEnv });
 }
 
+// ── Explicit CORS Origins ───────────────────────────────────────────────────
+// Restricts API and WebSocket live feed access to the two authorized frontends
+// (User Web App and Police Dispatcher Dashboard), read from ALLOWED_ORIGINS
+// so staging and production configurations can differ securely.
+const defaultAllowedOrigins = [
+  'http://localhost:5173', // ARIA User Frontend (Vite default)
+  'http://localhost:3000', // Police Dispatcher Dashboard (Vite port 3000)
+  'http://localhost:5174', // Alternative Vite local dev port
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5174'
+];
+
+const envOrigins = (process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+export const allowedOrigins = envOrigins.length > 0 ? envOrigins : defaultAllowedOrigins;
+
+const corsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Internal-Secret']
+};
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   }
 });
 
 const PORT = process.env.PORT || 5000;
 
-// Enable JSON parsing and CORS
-app.use(cors());
+// Enable JSON parsing and restricted CORS
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -68,7 +97,16 @@ app.use((req, res, next) => {
 // Dynamic on-demand report generation for legacy URLs so ephemeral disk wipe never causes 404s
 app.get('/uploads/reports/:filename', handleLegacyReportDownload);
 
-// Serve local uploads folder statically for evidence audio uploads
+// Protect audio evidence files from direct unauthenticated static access (require short-lived signed links)
+app.use('/uploads/evidence', (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Direct access forbidden. Evidence audio must be accessed through short-lived signed links.',
+    error: 'Forbidden'
+  });
+});
+
+// Serve local uploads folder statically for public assets/reports
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Save socket.io instance to context
@@ -82,6 +120,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api', alertRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/police', policeRoutes);
+app.use('/api/evidence', evidenceRoutes);
 
 // Base route for health checks
 app.get('/health', (req, res) => {

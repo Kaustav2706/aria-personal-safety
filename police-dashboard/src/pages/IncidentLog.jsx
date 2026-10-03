@@ -48,7 +48,7 @@ export default function IncidentLog() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE}/incidents/${id}`, policeConfig());
+      await axios.delete(`${API_BASE}/police/incidents/${id}`, policeConfig());
       if (window.showToast) window.showToast('Incident record deleted permanently.', 'success');
       fetchIncidents();
     } catch (err) {

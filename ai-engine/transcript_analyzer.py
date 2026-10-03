@@ -8,7 +8,7 @@ class TranscriptAnalyzer:
             "call 911", "call 100", "let me go", "stop following me", "stay away", "back off",
             "मुझे छोड़ दो", "छोड़ दो मुझे", "मुझे जाने दो", "मुझे मत छुओ", "मुझे मत मारो",
             "दूर रहो", "पीछा मत करो", "पुलिस को बुलाओ",
-            "\\u092e\\u0941\\u091d\\u0947 \\u091b\\u094b\\u0921\\u093c \\u0926\\u094b", "\\u092e\\u0941\\u091d\\u0947 \\u091c\\u093e\\u0928\\u0947 \\u0926\\u094b", "\\u092a\\u0941\\u0932\\u093f\\u0938 \\u0915\\u094b \\u092c\\u0941\\u0932\\u093e\\u0913",
+            "मुझे छोड़ दो", "मुझे जाने दो", "पुलिस को बुलाओ",
             "bachao", "madad karo", "chodo mujhe", "mujhe chodo", "door raho", "police ko bulao",
             "get off me", "let go of me", "let go"
         ]

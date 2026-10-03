@@ -1,4 +1,5 @@
 import io from 'socket.io-client';
+import { session } from '../app/index';
 
 const BACKEND_URL = 'http://localhost:5000';
 
@@ -7,7 +8,8 @@ class SocketService {
     this.socket = null;
   }
 
-  connect() {
+  connect(token) {
+    const authToken = token || session?.token;
     if (!this.socket) {
       // Configure automatic reconnection parameters for mobile devices
       this.socket = io(BACKEND_URL, {
@@ -15,7 +17,8 @@ class SocketService {
         reconnectionAttempts: 15,
         reconnectionDelay: 1500,
         reconnectionDelayMax: 5000,
-        timeout: 20000
+        timeout: 20000,
+        auth: { token: authToken }
       });
 
       this.socket.on('connect', () => {

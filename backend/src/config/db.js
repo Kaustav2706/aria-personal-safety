@@ -26,7 +26,8 @@ export const memoryStore = {
   incidents: [],
   locationHistory: [],
   sessions: [],
-  authSessions: []
+  authSessions: [],
+  auditLogs: []
 };
 
 export function saveMemoryStore() {
@@ -47,7 +48,8 @@ export function loadMemoryStore() {
       memoryStore.incidents = parsed.incidents || [];
       memoryStore.locationHistory = parsed.locationHistory || [];
       memoryStore.sessions = parsed.sessions || [];
-    memoryStore.authSessions = parsed.authSessions || [];
+      memoryStore.authSessions = parsed.authSessions || [];
+      memoryStore.auditLogs = parsed.auditLogs || [];
       console.log('💚 [MEMORY DB] Successfully loaded persistent local data.');
     }
   } catch (err) {
@@ -167,6 +169,22 @@ export async function initializeDatabase() {
 
       CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
       CREATE INDEX IF NOT EXISTS auth_sessions_refresh_token_hash_idx ON auth_sessions(refresh_token_hash);
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id VARCHAR(50) PRIMARY KEY,
+        user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
+        user_name VARCHAR(100),
+        user_email VARCHAR(100),
+        action VARCHAR(50) NOT NULL,
+        incident_id VARCHAR(50),
+        details JSONB,
+        ip_address VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS audit_logs_user_id_idx ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS audit_logs_incident_id_idx ON audit_logs(incident_id);
+      CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at);
     `);
     
     console.log('💚 [POSTGRESQL DB] Database schema migration executed successfully.');

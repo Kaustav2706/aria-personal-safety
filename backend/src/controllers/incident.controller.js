@@ -7,8 +7,12 @@ import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
 import { AIService } from '../services/aiService.js';
 import { AudioEvidenceService } from '../services/audioEvidenceService.js';
+import { StorageService } from '../services/storageService.js';
+import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
+import path from 'path';
+import crypto from 'crypto';
 
 export const createIncident = asyncHandler(async (req, res) => {
   const userId = req.userId;
@@ -75,9 +79,12 @@ export const createIncident = asyncHandler(async (req, res) => {
 
   if (req.file) {
     try {
-      audioUrl = await AudioEvidenceService.save(req.file);
+      const originalExtension = path.extname(req.file.originalname || '').toLowerCase();
+      const extension = ['.wav', '.mp3', '.m4a', '.mp4', '.ogg', '.webm'].includes(originalExtension) ? originalExtension : '.webm';
+      const fileName = `${crypto.randomUUID()}${extension}`;
+      audioUrl = await StorageService.uploadEvidence(fileName, req.file.buffer, req.file.mimetype || 'audio/webm');
     } catch (err) {
-      console.error('[INCIDENT CONTROLLER] Failed to persist audio evidence:', err.message);
+      console.error('[INCIDENT CONTROLLER] Failed to persist audio evidence via StorageService:', err.message);
     }
   }
 
@@ -93,28 +100,8 @@ export const createIncident = asyncHandler(async (req, res) => {
     audioUrl
   });
 
-  // 3. Notify Emergency Contacts and Police Dispatch
-  await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
-  await FirebaseService.sendPoliceBroadcast(incident);
-
-  // Trigger emergency voice calls if risk score matches threshold
-  if (incident.riskScore >= 60) {
-    console.log(`[INCIDENT CONTROLLER] Risk score (${incident.riskScore}%) >= 60%. Triggering Twilio emergency voice calls.`);
-    
-    // Call fallback number
-    await TwilioVoiceService.makeEmergencyCall('+919983376352', user, incident);
-    
-    // Call emergency contacts
-    if (user.emergencyContacts && user.emergencyContacts.length > 0) {
-      for (const contact of user.emergencyContacts) {
-        try {
-          await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
-        } catch (callErr) {
-          console.error(`[INCIDENT CONTROLLER] Failed emergency voice call sequence to ${contact.name} (${contact.phone}):`, callErr.message);
-        }
-      }
-    }
-  }
+  // 3. Notify Emergency Contacts and Police Dispatch via tiered thresholds
+  await dispatchTieredAlerts({ user, incident });
 
   // 4. Emit live update through Sockets
   const io = req.app.get('io');
@@ -140,8 +127,13 @@ export const getIncidents = asyncHandler(async (req, res) => {
   
   const enrichedList = await Promise.all(list.map(async (inc) => {
     const user = await User.findById(inc.userId);
+    let signedAudioUrl = inc.audioUrl;
+    if (inc.audioUrl) {
+      signedAudioUrl = await StorageService.getSignedUrl(inc.audioUrl);
+    }
     return {
       ...inc,
+      audioUrl: signedAudioUrl,
       userName: user ? user.name : 'Unknown User',
       userPhone: user ? user.phone : 'N/A'
     };
@@ -178,9 +170,17 @@ export const getIncidentById = asyncHandler(async (req, res) => {
   const user = await User.findById(incident.userId);
   const history = await Incident.getLocationHistory(id);
 
+  let signedAudioUrl = incident.audioUrl;
+  if (incident.audioUrl) {
+    signedAudioUrl = await StorageService.getSignedUrl(incident.audioUrl);
+  }
+
   return res.status(200).json({
     success: true,
-    incident,
+    incident: {
+      ...incident,
+      audioUrl: signedAudioUrl
+    },
     user: user ? { name: user.name, phone: user.phone, email: user.email, emergencyContacts: user.emergencyContacts } : null,
     locationHistory: history || []
   });
@@ -290,16 +290,30 @@ export const getIncidentReport = asyncHandler(async (req, res) => {
 });
 
 export const deleteIncident = asyncHandler(async (req, res) => {
+  const userId = req.userId;
   const { id } = req.params;
-  const deleted = await Incident.delete(id);
 
-  if (!deleted) {
+  // Find the incident first so we can verify ownership before destroying evidence
+  const incident = await Incident.findById(id);
+
+  if (!incident) {
     return res.status(404).json({
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
     });
   }
+
+  // Ownership check — same pattern as resolveIncident and getIncidentById
+  if (incident.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You do not own this incident.',
+      error: 'Forbidden'
+    });
+  }
+
+  await Incident.delete(id);
 
   return res.status(200).json({
     success: true,

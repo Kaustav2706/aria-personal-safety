@@ -11,16 +11,16 @@ from whisper_detector import WhisperDetector
 from tone_classifier import ToneClassifier
 from context_scorer import ContextScorer
 
-# Load the engine's local .env for direct `uvicorn main:app` starts. Values
+# Load root .env and local .env for direct uvicorn starts. Values
 # already supplied by the hosting environment take precedence.
-_local_env_file = Path(__file__).with_name(".env")
-if _local_env_file.is_file():
-    for _line in _local_env_file.read_text(encoding="utf-8-sig").splitlines():
-        _line = _line.strip()
-        if not _line or _line.startswith("#") or "=" not in _line:
-            continue
-        _key, _value = _line.split("=", 1)
-        os.environ.setdefault(_key.strip(), _value.strip().strip("\"'") )
+for _env_path in [Path(__file__).parent.parent / ".env", Path(__file__).with_name(".env")]:
+    if _env_path.is_file():
+        for _line in _env_path.read_text(encoding="utf-8-sig").splitlines():
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _key, _value = _line.split("=", 1)
+            os.environ.setdefault(_key.strip(), _value.strip().strip("\"'"))
 
 # gets AI_ENGINE_SECRET
 AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET", "aria-local-dev-secret-key-2024")
@@ -34,17 +34,19 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Restrict CORS to only the backend service — this is an internal API,
-# it should never be callable from a browser or public client.
-# BACKEND_URL must be set in the environment (e.g. http://aria-backend:5000)
-_allowed_origins = [o.strip() for o in os.environ.get("BACKEND_URL", "http://localhost:5000").split(",") if o.strip()]
+# ── Explicit CORS Configuration ─────────────────────────────────────────────
+# Restrict AI Engine access to authorized origins (backend and frontends).
+# Configurable via ALLOWED_ORIGINS or BACKEND_URL so staging and production differ securely.
+_default_ai_origins = "http://localhost:5000,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+_raw_origins = os.environ.get("ALLOWED_ORIGINS") or os.environ.get("BACKEND_URL") or _default_ai_origins
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=False,
-    allow_methods=["POST"],
-    allow_headers=["X-Internal-Secret", "Content-Type"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["X-Internal-Secret", "Content-Type", "Authorization"],
 )
 
 # Instantiate models

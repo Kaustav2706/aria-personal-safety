@@ -2,6 +2,7 @@ import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { TwilioService } from '../services/twilioService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const triggerSOS = asyncHandler(async (req, res) => {
@@ -28,9 +29,8 @@ export const triggerSOS = asyncHandler(async (req, res) => {
     audioTranscript: audioTranscript || ''
   });
 
-  // Notify Emergency Contacts and Police Dispatch
-  await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
-  await FirebaseService.sendPoliceBroadcast(incident);
+  // Notify Emergency Contacts and Police Dispatch via tiered thresholds
+  await dispatchTieredAlerts({ user, incident });
 
   // Emit websocket update
   const io = req.app.get('io');
@@ -60,6 +60,17 @@ export const updateLocation = asyncHandler(async (req, res) => {
     });
   }
 
+  const lat = parseFloat(latitude);
+  const lng = parseFloat(longitude);
+
+  if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid coordinates provided',
+      error: 'Bad Request'
+    });
+  }
+
   const incident = await Incident.findById(incidentId);
   if (!incident) {
     return res.status(404).json({
@@ -70,7 +81,7 @@ export const updateLocation = asyncHandler(async (req, res) => {
   }
 
   // Verify ownership
-  if (incident.userId !== req.userId) {
+  if (String(incident.userId) !== String(req.userId)) {
     return res.status(403).json({
       success: false,
       message: 'Access denied. You do not own this incident.',
@@ -78,11 +89,69 @@ export const updateLocation = asyncHandler(async (req, res) => {
     });
   }
 
+  // Reject updates for incidents that are already resolved
+  if (incident.status === 'resolved') {
+    return res.status(400).json({
+      success: false,
+      message: 'Incident is already resolved',
+      error: 'Bad Request'
+    });
+  }
+
+  // Plausibility check — reject physically impossible jumps
+  const MAX_SPEED_KMH = 250;
+  let prevLat = parseFloat(incident.latitude);
+  let prevLng = parseFloat(incident.longitude);
+  let lastUpdated = incident.createdAt ? new Date(incident.createdAt) : null;
+
+  const history = await Incident.getLocationHistory(incidentId);
+  if (history && history.length > 0) {
+    const lastFix = history[history.length - 1];
+    if (lastFix.latitude !== undefined && lastFix.longitude !== undefined) {
+      prevLat = parseFloat(lastFix.latitude);
+      prevLng = parseFloat(lastFix.longitude);
+    }
+    if (lastFix.timestamp) {
+      lastUpdated = new Date(lastFix.timestamp);
+    }
+  }
+
+  if (
+    lastUpdated &&
+    !isNaN(prevLat) &&
+    !isNaN(prevLng) &&
+    !(prevLat === 0 && prevLng === 0) &&
+    !(lat === 0 && lng === 0)
+  ) {
+    const R = 6371; // Earth radius km
+    const dLat = ((lat - prevLat) * Math.PI) / 180;
+    const dLng = ((lng - prevLng) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((prevLat * Math.PI) / 180) *
+      Math.cos((lat * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+    const distanceKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    if (distanceKm >= 0.05) {
+      const elapsedMs = Date.now() - lastUpdated.getTime();
+      const elapsedHours = elapsedMs > 0 ? elapsedMs / 3_600_000 : 0;
+      const impliedSpeedKmh = elapsedHours > 0 ? distanceKm / elapsedHours : Infinity;
+
+      if (impliedSpeedKmh > MAX_SPEED_KMH) {
+        return res.status(400).json({
+          success: false,
+          message: 'Position rejected: movement speed is not physically plausible',
+          error: 'Bad Request'
+        });
+      }
+    }
+  }
+
   // Update incident and automatically log to location_history
   const updated = await Incident.update(incidentId, {
-    latitude: parseFloat(latitude),
-    longitude: parseFloat(longitude),
-    ...(riskScore !== undefined && { riskScore: parseInt(riskScore) })
+    latitude: lat,
+    longitude: lng
   });
 
   // Emit updates to WebSockets
@@ -90,16 +159,16 @@ export const updateLocation = asyncHandler(async (req, res) => {
   if (io) {
     io.to(incidentId).emit('locationUpdate', {
       incidentId,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lng,
       riskScore: updated.riskScore,
       timestamp: new Date().toISOString()
     });
 
-    io.emit('globalLocationUpdate', {
+    io.to('dispatchers').emit('globalLocationUpdate', {
       incidentId,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lng,
       riskScore: updated.riskScore
     });
   }

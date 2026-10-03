@@ -7,23 +7,35 @@ try:
 except (ImportError, OSError):
     WhisperModel = None
 
+WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL_NAME", "small")
+WHISPER_MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", "/app/models/whisper-small")
+
 class WhisperDetector:
     def __init__(self):
         # Initialize WhisperModel
-        print("[WHISPER DETECTOR] Initializing Whisper model 'small' (multilingual) on CPU...")
+        print("[WHISPER DETECTOR] Initializing Whisper model...")
         try:
-            # 'small' is the smallest multilingual Whisper model.
-            # 'tiny.en' was English-only — it silently mangled Hindi audio into
-            # English approximations, making all Hindi distress phrases dead code.
-            self.model = WhisperModel("small", device="cpu", compute_type="int8") if WhisperModel else None
-            if self.model:
-                print("[WHISPER DETECTOR] Whisper model initialized successfully.")
+            if WhisperModel:
+                # 1. Prefer pre-baked offline model directory (baked during Docker build)
+                if os.path.isdir(WHISPER_MODEL_DIR) and os.listdir(WHISPER_MODEL_DIR):
+                    print(f"[WHISPER DETECTOR] Loading pre-baked offline Whisper model from '{WHISPER_MODEL_DIR}'...")
+                    self.model = WhisperModel(WHISPER_MODEL_DIR, device="cpu", compute_type="int8", local_files_only=True)
+                else:
+                    # 2. Fallback to model name (for local development outside Docker)
+                    print(f"[WHISPER DETECTOR] Pre-baked model not found at '{WHISPER_MODEL_DIR}'. Loading '{WHISPER_MODEL_NAME}'...")
+                    self.model = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+
+                if self.model:
+                    print("[WHISPER DETECTOR] Whisper model initialized successfully.")
+                else:
+                    print("[WHISPER DETECTOR] faster-whisper is not installed; analysis is unavailable.")
             else:
+                self.model = None
                 print("[WHISPER DETECTOR] faster-whisper is not installed; analysis is unavailable.")
         except Exception as e:
             print(f"[WHISPER DETECTOR] Failed to initialize Whisper model: {e}")
             self.model = None
-            
+
         # Initialize TranscriptAnalyzer
         self.analyzer = TranscriptAnalyzer()
         self._transcription_lock = Lock()

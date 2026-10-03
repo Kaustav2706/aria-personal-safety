@@ -91,8 +91,8 @@ export interface BackendIncident {
   userId: string;
   status: 'active' | 'resolved';
   triggerType: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   riskScore: number;
   audioTranscript: string;
   createdAt: string;

@@ -1,7 +1,7 @@
 import { Incident } from '../models/Incident.model.js';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
 
 export function setupLiveTracking(io) {
   console.log('[SOCKET.IO] Live Tracking system initialized with full acknowledgements.');
@@ -106,53 +106,126 @@ export function setupLiveTracking(io) {
     });
 
     // ── Live GPS Stream ──────────────────────────────────────────────────────
-    // Only the user who owns the incident may push location updates.
+    // Only the incident owner may push location updates.
+    // Guards: ownership · incident must be active · valid coordinate range ·
+    //         physically plausible movement speed · riskScore never from client.
     socket.on('locationUpdate', async (data, callback) => {
-      const { incidentId, latitude, longitude, riskScore } = data;
+      const { incidentId, latitude, longitude } = data;
+      // riskScore is intentionally ignored from the client — never trust self-reported risk
+
       if (!incidentId || latitude === undefined || longitude === undefined) {
         if (callback) callback({ success: false, message: 'Missing location details' });
+        return;
+      }
+
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+
+      // ── 1. Validate coordinate ranges ─────────────────────────────────────
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        console.warn(`[SOCKET.IO] Rejected locationUpdate: invalid coordinates (${lat}, ${lng}) from socket ${socket.id}`);
+        if (callback) callback({ success: false, message: 'Invalid coordinates' });
         return;
       }
 
       try {
         const incident = await Incident.findById(incidentId);
 
-        // Only the incident owner may send GPS updates (not dispatchers, not other users)
-        if (!incident || incident.userId !== socket.user?.id) {
+        // ── 2. Ownership check ──────────────────────────────────────────────
+        // Strictly verify that the authenticated user from the token owns this incident.
+        // Any user/reporter ID in the message payload is completely ignored.
+        if (!socket.user?.id || !incident || String(incident.userId) !== String(socket.user.id)) {
+          console.warn(`[SOCKET.IO] Unauthorized locationUpdate attempt for incident ${incidentId} by user ${socket.user?.id}`);
           if (callback) callback({ success: false, message: 'Unauthorized' });
           return;
         }
 
-        console.log(`[SOCKET.IO] Location update received for Incident: ${incidentId} -> Lat: ${latitude}, Lon: ${longitude}`);
+        // ── 3. Reject updates on resolved incidents ─────────────────────────
+        // Accepting positions after resolution would silently corrupt the
+        // evidence trail that police may need to produce in court.
+        if (incident.status === 'resolved') {
+          console.warn(`[SOCKET.IO] Rejected locationUpdate: incident ${incidentId} is already resolved`);
+          if (callback) callback({ success: false, message: 'Incident is already resolved' });
+          return;
+        }
 
-        await Incident.addLocationHistory(
-          incidentId,
-          parseFloat(latitude),
-          parseFloat(longitude),
-          riskScore !== undefined ? parseInt(riskScore) : 0
-        );
+        // ── 4. Plausibility check — reject physically impossible jumps ───────
+        // Max speed: 250 km/h (covers emergency vehicles, highway speeds, and GPS drift).
+        // Uses the Haversine formula against the latest fix in location history
+        // (or initial incident coordinates if no history exists yet).
+        const MAX_SPEED_KMH = 250;
+        let prevLat = parseFloat(incident.latitude);
+        let prevLng = parseFloat(incident.longitude);
+        let lastUpdated = incident.createdAt ? new Date(incident.createdAt) : null;
 
-        await Incident.update(incidentId, {
-          latitude: parseFloat(latitude),
-          longitude: parseFloat(longitude),
-          ...(riskScore !== undefined && { riskScore: parseInt(riskScore) })
-        });
+        const history = await Incident.getLocationHistory(incidentId);
+        if (history && history.length > 0) {
+          const lastFix = history[history.length - 1];
+          if (lastFix.latitude !== undefined && lastFix.longitude !== undefined) {
+            prevLat = parseFloat(lastFix.latitude);
+            prevLng = parseFloat(lastFix.longitude);
+          }
+          if (lastFix.timestamp) {
+            lastUpdated = new Date(lastFix.timestamp);
+          }
+        }
 
-        // Broadcast to clients in THIS incident's private room (reporter + any joined dispatchers)
+        if (
+          lastUpdated &&
+          !isNaN(prevLat) &&
+          !isNaN(prevLng) &&
+          !(prevLat === 0 && prevLng === 0) &&
+          !(lat === 0 && lng === 0)
+        ) {
+          const R = 6371; // Earth radius km
+          const dLat = ((lat - prevLat) * Math.PI) / 180;
+          const dLng = ((lng - prevLng) * Math.PI) / 180;
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos((prevLat * Math.PI) / 180) *
+            Math.cos((lat * Math.PI) / 180) *
+            Math.sin(dLng / 2) ** 2;
+          const distanceKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+          // Allow movements under 50m as normal GPS jitter/drift regardless of elapsed time
+          if (distanceKm >= 0.05) {
+            const elapsedMs = Date.now() - lastUpdated.getTime();
+            const elapsedHours = elapsedMs > 0 ? elapsedMs / 3_600_000 : 0;
+            const impliedSpeedKmh = elapsedHours > 0 ? distanceKm / elapsedHours : Infinity;
+
+            if (impliedSpeedKmh > MAX_SPEED_KMH) {
+              console.warn(
+                `[SOCKET.IO] Rejected locationUpdate: impossible movement for incident ${incidentId} ` +
+                `— ${distanceKm.toFixed(1)} km in ${(elapsedHours * 60).toFixed(1)} min (${impliedSpeedKmh.toFixed(0)} km/h)`
+              );
+              if (callback) callback({ success: false, message: 'Position rejected: movement speed is not physically plausible' });
+              return;
+            }
+          }
+        }
+
+        console.log(`[SOCKET.IO] Location update accepted for incident ${incidentId} → Lat: ${lat}, Lng: ${lng}`);
+
+        // Persist — Incident.update automatically appends to location_history and updates coords
+        await Incident.update(incidentId, { latitude: lat, longitude: lng });
+
+        const timestamp = new Date().toISOString();
+
+        // Broadcast to the incident's private room (owner + joined dispatchers)
         io.to(incidentId).emit('locationUpdate', {
           incidentId,
-          latitude: parseFloat(latitude),
-          longitude: parseFloat(longitude),
-          riskScore: riskScore !== undefined ? parseInt(riskScore) : undefined,
-          timestamp: new Date().toISOString()
+          latitude: lat,
+          longitude: lng,
+          riskScore: incident.riskScore,
+          timestamp
         });
 
-        // Dispatch dashboard feed → dispatchers room ONLY, not global
+        // Forward to the dispatchers room for the live map feed
         io.to('dispatchers').emit('globalLocationUpdate', {
           incidentId,
-          latitude: parseFloat(latitude),
-          longitude: parseFloat(longitude),
-          riskScore: riskScore !== undefined ? parseInt(riskScore) : undefined
+          latitude: lat,
+          longitude: lng,
+          riskScore: incident.riskScore
         });
 
         if (callback) callback({ success: true, message: 'Coordinates logged and broadcasted successfully.' });

@@ -8,9 +8,47 @@ const getAIEngineUrl = () => {
 };
 
 const AI_ENGINE_URL = getAIEngineUrl();
+const DEFAULT_AI_TIMEOUT_MS = 4000; // Shorter than the 5-second chunk interval to prevent connection pileups
+
+// ── Burst-absorbing Request Queue ───────────────────────────────────────────
+// Queues concurrent requests between backend and AI service to absorb bursts
+// instead of letting connections stack under heavy load.
+class AIRequestQueue {
+  constructor(concurrency = 3) {
+    this.concurrency = concurrency;
+    this.running = 0;
+    this.queue = [];
+  }
+
+  enqueue(task) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ task, resolve, reject });
+      this.processNext();
+    });
+  }
+
+  processNext() {
+    if (this.running >= this.concurrency || this.queue.length === 0) {
+      return;
+    }
+
+    const { task, resolve, reject } = this.queue.shift();
+    this.running++;
+
+    task()
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        this.running--;
+        this.processNext();
+      });
+  }
+}
+
+const aiRequestQueue = new AIRequestQueue(parseInt(process.env.AI_CONCURRENCY_LIMIT, 10) || 3);
 
 export class AIService {
-  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false, motionAnomaly = false, language = null, timeoutMs = 8000 }) {
+  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false, motionAnomaly = false, language = null, timeoutMs = DEFAULT_AI_TIMEOUT_MS }) {
     console.log(`[AI SERVICE INTEGRATOR] Dispatching audio to AI Engine: ${fileName}`);
 
     try {
@@ -24,13 +62,15 @@ export class AIService {
       formData.append('timestamp', new Date().toISOString());
       if (language) formData.append('language', language);
 
-      const res = await axios.post(`${AI_ENGINE_URL}/analyze`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'X-Internal-Secret': process.env.AI_ENGINE_SECRET
-        },
-        timeout: timeoutMs
-      });
+      const res = await aiRequestQueue.enqueue(() =>
+        axios.post(`${AI_ENGINE_URL}/analyze`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'X-Internal-Secret': process.env.AI_ENGINE_SECRET
+          },
+          timeout: timeoutMs
+        })
+      );
 
       return {
         available: true,

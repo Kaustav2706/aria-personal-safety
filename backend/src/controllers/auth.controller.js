@@ -27,7 +27,7 @@ async function createAuthTokens(userId, role = 'user') {
 }
 
 export const register = asyncHandler(async (req, res) => {
-  const { name, email, phone, password, emergencyContacts } = req.body;
+  const { name, email, phone, password, role, emergencyContacts } = req.body;
 
   if (!name || !email || !phone || !password) {
     return res.status(400).json({
@@ -64,6 +64,7 @@ export const register = asyncHandler(async (req, res) => {
     email,
     phone,
     passwordHash,
+    role: role === 'police' ? 'police' : 'user',
     emergencyContacts: emergencyContacts || []
   });
 

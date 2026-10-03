@@ -3,32 +3,72 @@ import { User } from '../models/User.model.js';
 import { MonitoringSession } from '../models/MonitoringSession.model.js';
 import { AIService } from '../services/aiService.js';
 import { AudioEvidenceService } from '../services/audioEvidenceService.js';
+import { StorageService } from '../services/storageService.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { get as redisGet, set as redisSet } from '../config/redis.js';
+import path from 'path';
+import crypto from 'crypto';
 
-// ── In-memory cooldown tracker ──────────────────────────────────────────────
-// Reuses an active incident during the cooldown window to avoid duplicates
-// without dropping subsequent high-risk detections.
+// ── Redis-backed cooldown tracker with DB backup ─────────────────────────────
+// Reuses an active incident during the 5-minute cooldown window to avoid duplicates
+// across multiple server replicas without dropping subsequent high-risk detections.
 const INCIDENT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const INCIDENT_COOLDOWN_SECONDS = 5 * 60; // 300 seconds
 
 /**
  * Finds an active monitoring incident for the user within the cooldown window.
+ * Checks Redis first for fast multi-server consistency, backed up by the database check.
  * @param {string} userId
  * @returns {Promise<object|null>} incident to reuse, or null if a new one is needed
  */
 async function findCooldownIncident(userId) {
+  const redisKey = `incident:cooldown:${userId}`;
+
+  // 1. Check Redis first for fast distributed state across servers
+  try {
+    const cached = await redisGet(redisKey);
+    if (cached) {
+      const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('[MONITORING] Redis cooldown cache lookup failed, falling back to database:', err.message);
+  }
+
+  // 2. Database check backing up the cooldown
   const recentCutoff = Date.now() - INCIDENT_COOLDOWN_MS;
   try {
     const incidents = await Incident.findByUserId(userId);
-    return incidents.find((incident) =>
+    const existing = incidents.find((incident) =>
       incident.triggerType === 'monitoring' &&
       incident.status === 'active' &&
       new Date(incident.createdAt).getTime() >= recentCutoff
     ) || null;
+
+    if (existing) {
+      // Backfill Redis with remaining TTL so subsequent checks across all server instances hit Redis
+      const elapsedSeconds = Math.floor((Date.now() - new Date(existing.createdAt).getTime()) / 1000);
+      const remainingSeconds = Math.max(1, INCIDENT_COOLDOWN_SECONDS - elapsedSeconds);
+      try {
+        await redisSet(redisKey, JSON.stringify({
+          id: existing.id,
+          riskScore: existing.riskScore,
+          triggerType: existing.triggerType,
+          createdAt: existing.createdAt
+        }), 'EX', remainingSeconds);
+      } catch (cacheErr) {
+        console.warn('[MONITORING] Failed to backfill Redis cooldown:', cacheErr.message);
+      }
+      return existing;
+    }
+
+    return null;
   } catch (err) {
-    console.warn('[MONITORING] Could not check for an active cooldown incident:', err.message);
+    console.warn('[MONITORING] Could not check for an active cooldown incident in DB:', err.message);
     return null;
   }
 }
@@ -76,7 +116,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
     language: null,
-    timeoutMs: 30000
+    timeoutMs: 4000
   });
 
   const { distress, confidence, transcript, riskScore } = analysis;
@@ -124,10 +164,15 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           // using the same models and services without duplication.
 
           let audioUrl = null;
-          try {
-            audioUrl = await AudioEvidenceService.save(req.file);
-          } catch (err) {
-            console.error('[MONITORING] Failed to persist incident audio evidence:', err.message);
+          if (req.file) {
+            try {
+              const originalExtension = path.extname(req.file.originalname || '').toLowerCase();
+              const extension = ['.wav', '.mp3', '.m4a', '.mp4', '.ogg', '.webm'].includes(originalExtension) ? originalExtension : '.webm';
+              const fileName = `${crypto.randomUUID()}${extension}`;
+              audioUrl = await StorageService.uploadEvidence(fileName, req.file.buffer, req.file.mimetype || 'audio/webm');
+            } catch (err) {
+              console.error('[MONITORING] Failed to persist incident audio evidence via StorageService:', err.message);
+            }
           }
 
           const incident = await Incident.create({
@@ -141,32 +186,22 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
             audioUrl
           });
 
+          // Set 5-minute cooldown in Redis immediately to guard against duplicate incidents across servers
+          try {
+            await redisSet(`incident:cooldown:${userId}`, JSON.stringify({
+              id: incident.id,
+              riskScore: incident.riskScore,
+              triggerType: incident.triggerType,
+              createdAt: incident.createdAt || new Date().toISOString()
+            }), 'EX', INCIDENT_COOLDOWN_SECONDS);
+          } catch (cacheErr) {
+            console.warn('[MONITORING] Failed to store incident cooldown in Redis:', cacheErr.message);
+          }
+
           console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%)`);
 
-          // Notify emergency contacts via SMS (reuse TwilioService)
-          await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
-
-          // Broadcast to police via Firebase FCM (reuse FirebaseService)
-          await FirebaseService.sendPoliceBroadcast(incident);
-
-          // Trigger emergency voice calls if risk score meets threshold (reuse TwilioVoiceService)
-          if (incident.riskScore >= 60) {
-            console.log(`[MONITORING] Risk score (${incident.riskScore}%) >= 60%. Triggering Twilio emergency voice calls.`);
-            
-            // Call fallback number
-            await TwilioVoiceService.makeEmergencyCall('+919983376352', user, incident);
-
-            // Call emergency contacts
-            if (user.emergencyContacts && user.emergencyContacts.length > 0) {
-              for (const contact of user.emergencyContacts) {
-                try {
-                  await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
-                } catch (callErr) {
-                  console.error(`[MONITORING] Failed emergency voice call to ${contact.name} (${contact.phone}):`, callErr.message);
-                }
-              }
-            }
-          }
+          // Notify Emergency Contacts and Police Dispatch via tiered thresholds
+          await dispatchTieredAlerts({ user, incident });
 
           // Emit live update through Socket.IO (reuse existing io instance)
           const io = req.app.get('io');
@@ -300,6 +335,7 @@ export const stopSession = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 export const getSessionStatus = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
+  const userId = req.userId;
 
   console.log(`[MONITORING] Status check for session ${sessionId}`);
 
@@ -309,6 +345,14 @@ export const getSessionStatus = asyncHandler(async (req, res) => {
       success: false,
       message: 'Monitoring session not found.',
       error: 'Not Found'
+    });
+  }
+
+  if (session.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: 'You do not own this monitoring session.',
+      error: 'Forbidden'
     });
   }
 

@@ -43,7 +43,8 @@ export default function MonitoringView({
   // Refs for cleanup
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMonitoringActiveRef = useRef<boolean>(false);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Continuous audio recording with overlapping window buffer
   const rollingChunksRef = useRef<{ blob: Blob; isFirst: boolean }[]>([]);
@@ -244,32 +245,62 @@ export default function MonitoringView({
       // NEVER stopped/restarted between chunks, avoiding dropped microphone frames.
       mediaRecorder.start(1000);
 
-      // 4. Overlapping window uploader: every 5 seconds, upload accumulated slices
-      // and retain the last 2 slices (~2 seconds) so consecutive windows overlap,
-      // guaranteeing words like "help" spoken across boundaries are never lost.
-      chunkIntervalRef.current = setInterval(async () => {
-        if (rollingChunksRef.current.length === 0) return;
+      // 4. Overlapping window uploader:
+      // Sequential scheduling: never sends the next chunk until the previous one has come back or timed out.
+      // Timeout (4500ms) is shorter than the interval (5000ms), eliminating stacked requests under load.
+      isMonitoringActiveRef.current = true;
+      const CHUNK_INTERVAL_MS = 5000;
 
-        // Take accumulated slices for this upload window
-        const slicesToUpload = [...rollingChunksRef.current];
+      const scheduleNextChunk = (delayMs: number) => {
+        if (!isMonitoringActiveRef.current) return;
+        chunkTimerRef.current = setTimeout(async () => {
+          if (!isMonitoringActiveRef.current) return;
 
-        // Retain the last 2 slices (approx 2s of audio) for cross-boundary overlap
-        rollingChunksRef.current = rollingChunksRef.current.slice(-2);
+          if (rollingChunksRef.current.length > 0) {
+            // Take accumulated slices for this upload window
+            const slicesToUpload = [...rollingChunksRef.current];
 
-        // Prepend WebM container/tracks header if this window doesn't include the first slice
-        const containsFirst = slicesToUpload.some((s) => s.isFirst);
-        let uploadBlob: Blob;
+            // Retain the last 2 slices (approx 2s of audio) for cross-boundary overlap
+            rollingChunksRef.current = rollingChunksRef.current.slice(-2);
 
-        if (containsFirst) {
-          uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
-        } else if (webmHeaderRef.current) {
-          uploadBlob = new Blob([webmHeaderRef.current, ...slicesToUpload.map((s) => s.blob)], { type: 'audio/webm' });
-        } else {
-          uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
-        }
+            // Prepend WebM container/tracks header if this window doesn't include the first slice
+            const containsFirst = slicesToUpload.some((s) => s.isFirst);
+            let uploadBlob: Blob;
 
-        await uploadChunk(uploadBlob, sid);
-      }, 5000);
+            if (containsFirst) {
+              uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
+            } else if (webmHeaderRef.current) {
+              uploadBlob = new Blob([webmHeaderRef.current, ...slicesToUpload.map((s) => s.blob)], { type: 'audio/webm' });
+            } else {
+              uploadBlob = new Blob(slicesToUpload.map((s) => s.blob), { type: 'audio/webm' });
+            }
+
+            const startTime = Date.now();
+            try {
+              // Await until the current chunk has completely finished or timed out
+              await uploadChunk(uploadBlob, sid);
+            } catch (uploadErr) {
+              console.warn('[MONITORING] Upload error in loop:', uploadErr);
+            }
+
+            const elapsed = Date.now() - startTime;
+            // Respect the interval and ensure at least 3000ms gap to satisfy backend rate limiter
+            const nextDelay = Math.max(CHUNK_INTERVAL_MS - elapsed, 3000);
+
+            if (isMonitoringActiveRef.current) {
+              scheduleNextChunk(nextDelay);
+            }
+          } else {
+            // No audio frames ready yet, check again shortly
+            if (isMonitoringActiveRef.current) {
+              scheduleNextChunk(1000);
+            }
+          }
+        }, delayMs);
+      };
+
+      // Initial chunk scheduled after the first 5000ms audio window
+      scheduleNextChunk(CHUNK_INTERVAL_MS);
 
       // 5. Duration timer
       setRecordingDuration(0);
@@ -406,8 +437,12 @@ export default function MonitoringView({
     lastBackendConfidenceRef.current = 15;
     setConfidence(0);
 
-    // Clear intervals
-    if (chunkIntervalRef.current) clearInterval(chunkIntervalRef.current);
+    // Clear timers
+    isMonitoringActiveRef.current = false;
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
+    }
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
 
     // Stop MediaRecorder
@@ -442,7 +477,11 @@ export default function MonitoringView({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (chunkIntervalRef.current) clearInterval(chunkIntervalRef.current);
+      isMonitoringActiveRef.current = false;
+      if (chunkTimerRef.current) {
+        clearTimeout(chunkTimerRef.current);
+        chunkTimerRef.current = null;
+      }
       if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());

@@ -1,20 +1,17 @@
 /**
- * In-memory per-user rate limiter for monitoring chunk uploads.
- * Enforces a minimum interval between requests per authenticated user.
- * No external dependencies — uses a simple Map with automatic cleanup.
+ * Distributed rate limiter middleware backed by Redis.
+ * Shares rate limit state across multiple server instances on AWS,
+ * with automatic in-memory fallback for local development.
  */
 
-const CHUNK_INTERVAL_MS = 3000; // 1 chunk every 3 seconds per user
-const CLEANUP_INTERVAL_MS = 60000; // Clean stale entries every 60 seconds
+import { checkIntervalRateLimit, checkCounterRateLimit } from '../config/redis.js';
 
-const userTimestamps = new Map();
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const CHUNK_INTERVAL_MS = 3000; // 1 chunk every 3 seconds per user
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_EMAIL_LIMIT = 5;
 const LOGIN_IP_LIMIT = 20;
 const REGISTRATION_IP_LIMIT = 5;
-const loginAttemptsByEmail = new Map();
-const loginAttemptsByIp = new Map();
-const registrationAttemptsByIp = new Map();
 
 function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || 'unknown';
@@ -25,81 +22,78 @@ function getEmail(req) {
   return typeof email === 'string' ? email.trim().toLowerCase() : null;
 }
 
-function isRateLimited(store, key, limit, now) {
-  const timestamps = (store.get(key) || []).filter(timestamp => now - timestamp < LOGIN_WINDOW_MS);
-
-  if (timestamps.length >= limit) {
-    store.set(key, timestamps);
-    return true;
-  }
-
-  timestamps.push(now);
-  store.set(key, timestamps);
-  return false;
-}
-
-// Periodic cleanup of stale entries to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, lastTime] of userTimestamps.entries()) {
-    if (now - lastTime > CHUNK_INTERVAL_MS * 10) {
-      userTimestamps.delete(userId);
-    }
-  }
-
-  for (const store of [loginAttemptsByEmail, loginAttemptsByIp, registrationAttemptsByIp]) {
-    for (const [key, timestamps] of store.entries()) {
-      const recentTimestamps = timestamps.filter(timestamp => now - timestamp < LOGIN_WINDOW_MS);
-      if (recentTimestamps.length === 0) {
-        store.delete(key);
-      } else {
-        store.set(key, recentTimestamps);
-      }
-    }
-  }
-}, CLEANUP_INTERVAL_MS).unref(); // .unref() so this timer doesn't block process exit
-
-export function loginRateLimiter(req, res, next) {
-  const now = Date.now();
+export async function loginRateLimiter(req, res, next) {
   const email = getEmail(req);
   const ip = getClientIp(req);
 
-  if (email && isRateLimited(loginAttemptsByEmail, email, LOGIN_EMAIL_LIMIT, now)) {
-    return res.status(429).json({
-      success: false,
-      message: 'Too many login attempts. Please try again later.',
-      error: 'Rate Limit Exceeded'
-    });
-  }
+  try {
+    if (email) {
+      const emailCheck = await checkCounterRateLimit(
+        `ratelimit:login:email:${email}`,
+        LOGIN_EMAIL_LIMIT,
+        LOGIN_WINDOW_SECONDS
+      );
 
-  if (isRateLimited(loginAttemptsByIp, ip, LOGIN_IP_LIMIT, now)) {
-    return res.status(429).json({
-      success: false,
-      message: 'Too many login attempts. Please try again later.',
-      error: 'Rate Limit Exceeded'
-    });
-  }
+      if (!emailCheck.allowed) {
+        return res.status(429).json({
+          success: false,
+          message: 'Too many login attempts. Please try again later.',
+          error: 'Rate Limit Exceeded'
+        });
+      }
+    }
 
-  next();
+    const ipCheck = await checkCounterRateLimit(
+      `ratelimit:login:ip:${ip}`,
+      LOGIN_IP_LIMIT,
+      LOGIN_WINDOW_SECONDS
+    );
+
+    if (!ipCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many login attempts. Please try again later.',
+        error: 'Rate Limit Exceeded'
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.warn('[LOGIN RATE LIMITER] Error checking rate limit:', err.message);
+    next();
+  }
 }
 
-export function registrationRateLimiter(req, res, next) {
-  if (isRateLimited(registrationAttemptsByIp, getClientIp(req), REGISTRATION_IP_LIMIT, Date.now())) {
-    return res.status(429).json({
-      success: false,
-      message: 'Too many registration attempts. Please try again later.',
-      error: 'Rate Limit Exceeded'
-    });
-  }
+export async function registrationRateLimiter(req, res, next) {
+  const ip = getClientIp(req);
 
-  next();
+  try {
+    const ipCheck = await checkCounterRateLimit(
+      `ratelimit:register:ip:${ip}`,
+      REGISTRATION_IP_LIMIT,
+      LOGIN_WINDOW_SECONDS
+    );
+
+    if (!ipCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many registration attempts. Please try again later.',
+        error: 'Rate Limit Exceeded'
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.warn('[REGISTRATION RATE LIMITER] Error checking rate limit:', err.message);
+    next();
+  }
 }
 
 /**
  * Express middleware that rate-limits monitoring chunk uploads.
- * Requires req.userId to be set by the auth middleware upstream.
+ * Enforces minimum 3-second interval per authenticated user across all server replicas.
  */
-export function monitoringRateLimiter(req, res, next) {
+export async function monitoringRateLimiter(req, res, next) {
   const userId = req.userId;
 
   if (!userId) {
@@ -110,23 +104,27 @@ export function monitoringRateLimiter(req, res, next) {
     });
   }
 
-  const now = Date.now();
-  const lastRequest = userTimestamps.get(userId);
+  try {
+    const { allowed, retryAfterMs } = await checkIntervalRateLimit(
+      `ratelimit:chunk:${userId}`,
+      CHUNK_INTERVAL_MS
+    );
 
-  if (lastRequest && (now - lastRequest) < CHUNK_INTERVAL_MS) {
-    const retryAfterMs = CHUNK_INTERVAL_MS - (now - lastRequest);
-    console.log(`[MONITORING RATE LIMITER] User ${userId} rate limited. Retry after ${retryAfterMs}ms`);
+    if (!allowed) {
+      console.log(`[MONITORING RATE LIMITER] User ${userId} rate limited. Retry after ${retryAfterMs}ms`);
+      return res.status(429).json({
+        success: false,
+        message: 'Too many requests. Maximum 1 audio chunk every 3 seconds.',
+        retryAfterMs,
+        error: 'Rate Limit Exceeded'
+      });
+    }
 
-    return res.status(429).json({
-      success: false,
-      message: 'Too many requests. Maximum 1 audio chunk every 3 seconds.',
-      retryAfterMs,
-      error: 'Rate Limit Exceeded'
-    });
+    next();
+  } catch (err) {
+    console.warn('[MONITORING RATE LIMITER] Rate limiter error:', err.message);
+    next();
   }
-
-  userTimestamps.set(userId, now);
-  next();
 }
 
 export default monitoringRateLimiter;
