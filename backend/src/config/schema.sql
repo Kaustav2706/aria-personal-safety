@@ -72,3 +72,8 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS auth_sessions_refresh_token_hash_idx ON auth_sessions(refresh_token_hash);
+
+-- 8. Per-recipient emergency notification delivery logs (SMS + voice), stored on the incident
+DO $$ BEGIN
+  ALTER TABLE incidents ADD COLUMN notification_logs JSONB;
+EXCEPTION WHEN duplicate_column THEN END $$;

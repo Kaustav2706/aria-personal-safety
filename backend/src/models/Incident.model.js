@@ -2,7 +2,7 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import crypto from 'crypto';
 
 export class Incident {
-  static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '', audioUrl = null }) {
+  static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '', audioUrl = null, notificationLogs = [] }) {
 
     const incidentId = crypto.randomUUID();
 
@@ -17,6 +17,7 @@ export class Incident {
         riskScore: parseInt(riskScore) || 0,
         audioTranscript,
         audioUrl,
+        notificationLogs,
         createdAt: new Date().toISOString()
       };
 
@@ -40,9 +41,9 @@ export class Incident {
       await client.query('BEGIN');
 
       const insertQuery = `
-        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript, audio_url)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt"
+        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript, audio_url, notification_logs)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt"
       `;
 
       const res = await client.query(insertQuery, [
@@ -54,7 +55,8 @@ export class Incident {
         parseFloat(longitude) || 0.0,
         parseInt(riskScore) || 0,
         audioTranscript,
-        audioUrl
+        audioUrl,
+        notificationLogs
       ]);
       const incident = res.rows[0];
 
@@ -88,6 +90,7 @@ export class Incident {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
+               notification_logs as "notificationLogs",
                created_at as "createdAt" 
         FROM incidents 
         WHERE id = $1
@@ -110,6 +113,7 @@ export class Incident {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
+               notification_logs as "notificationLogs",
                created_at as "createdAt" 
         FROM incidents 
         ORDER BY created_at DESC
@@ -122,7 +126,7 @@ export class Incident {
     }
   }
 
-  static async findByUserId(userId) {
+static async findByUserId(userId) {
     if (dbMode === 'memory') {
       return memoryStore.incidents
         .filter(i => i.userId === userId)
@@ -133,9 +137,10 @@ export class Incident {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
+               notification_logs as "notificationLogs",
                created_at as "createdAt" 
         FROM incidents 
-        WHERE user_id = $1
+        WHERE user_id = $1 
         ORDER BY created_at DESC
       `;
       const res = await pool.query(query, [userId]);
@@ -206,9 +211,13 @@ export class Incident {
         fields.push(`audio_url = $${valIdx++}`);
         values.push(updates.audioUrl);
       }
+      if (updates.notificationLogs !== undefined) {
+        fields.push(`notification_logs = $${valIdx++}`);
+        values.push(updates.notificationLogs);
+      }
 
       if (fields.length === 0) {
-        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt" FROM incidents WHERE id = $1`;
+        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt" FROM incidents WHERE id = $1`;
         const res = await client.query(query, [id]);
         await client.query('COMMIT');
         return res.rows[0];
@@ -219,7 +228,7 @@ export class Incident {
         UPDATE incidents 
         SET ${fields.join(', ')} 
         WHERE id = $${valIdx} 
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", created_at as "createdAt"
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt"
       `;
       const res = await client.query(updateQuery, values);
       const incident = res.rows[0];

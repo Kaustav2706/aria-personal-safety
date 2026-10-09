@@ -101,7 +101,17 @@ export const createIncident = asyncHandler(async (req, res) => {
   });
 
   // 3. Notify Emergency Contacts and Police Dispatch via tiered thresholds
-  await dispatchTieredAlerts({ user, incident });
+  const alertResults = await dispatchTieredAlerts({ user, incident });
+
+  // Persist per-recipient delivery outcomes on the incident record so the
+  // dossier can report the real result instead of a hardcoded [Dispatched: OK].
+  if (alertResults.notificationLogs && alertResults.notificationLogs.length > 0) {
+    try {
+      await Incident.update(incident.id, { notificationLogs: alertResults.notificationLogs });
+    } catch (saveErr) {
+      console.error('[INCIDENT CONTROLLER] Failed to persist notification logs:', saveErr.message);
+    }
+  }
 
   // 4. Emit live update through Sockets
   const io = req.app.get('io');
