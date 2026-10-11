@@ -112,9 +112,11 @@ export class ReportService {
 
     // Evidence Links
     doc.fontSize(11).font('Helvetica-Bold').text('Evidence Links:', 50, 485);
-    const hostBase = baseUrl || this.getBaseUrl(null);
-    const evidenceUrl = incident.audioUrl || `${hostBase}/uploads/evidence_${incident.id}.wav`;
-    doc.fillColor('#3b82f6').font('Helvetica').text(evidenceUrl, 160, 485, { link: evidenceUrl });
+    if (incident.audioUrl) {
+      doc.fillColor('#3b82f6').font('Helvetica').text(incident.audioUrl, 160, 485, { link: incident.audioUrl });
+    } else {
+      doc.fillColor('#1f2937').font('Helvetica').text('no audio evidence recorded', 160, 485);
+    }
     doc.fillColor('#1f2937');
 
     // Emergency Notification Details
@@ -123,11 +125,38 @@ export class ReportService {
     doc.strokeColor('#e5e7eb').lineWidth(1).moveTo(50, 540).lineTo(562, 540).stroke();
 
     let yOffset = 555;
-    if (user && user.emergencyContacts && user.emergencyContacts.length > 0) {
+    const logs = Array.isArray(incident.notificationLogs) ? incident.notificationLogs : [];
+
+    if (logs.length > 0) {
+      const smsLogs = logs.filter(l => l.channel === 'sms');
+      const voiceLogs = logs.filter(l => l.channel === 'voice');
+
+      if (smsLogs.length > 0) {
+        doc.fontSize(10).font('Helvetica-Bold').text('Emergency Contacts Notified via SMS Alerts:', 50, yOffset);
+        yOffset += 15;
+        smsLogs.forEach((entry, index) => {
+          const outcome = entry.success ? 'Delivered' : 'Delivery failed';
+          const detail = entry.success ? (entry.status ? ` [Status: ${entry.status}]` : '') : (entry.errorMessage ? ` [${entry.errorMessage}]` : '');
+          doc.fontSize(10).font('Helvetica').text(`${index + 1}. ${entry.name} - Phone: ${entry.phone} [${outcome}${detail}]`, 70, yOffset);
+          yOffset += 15;
+        });
+      }
+
+      if (voiceLogs.length > 0) {
+        doc.fontSize(10).font('Helvetica-Bold').text('Emergency Contacts Notified via Voice Calls:', 50, yOffset);
+        yOffset += 15;
+        voiceLogs.forEach((entry, index) => {
+          const outcome = entry.success ? 'Connected' : 'Delivery failed';
+          const detail = entry.success ? (entry.status ? ` [Status: ${entry.status}]` : '') : (entry.errorMessage ? ` [${entry.errorMessage}]` : '');
+          doc.fontSize(10).font('Helvetica').text(`${index + 1}. ${entry.name} - Phone: ${entry.phone} [${outcome}${detail}]`, 70, yOffset);
+          yOffset += 15;
+        });
+      }
+    } else if (user && user.emergencyContacts && user.emergencyContacts.length > 0) {
       doc.fontSize(10).font('Helvetica-Bold').text('Emergency Contacts Notified via SMS Alerts:', 50, yOffset);
       yOffset += 15;
       user.emergencyContacts.forEach((contact, index) => {
-        doc.fontSize(10).font('Helvetica').text(`${index + 1}. ${contact.name} - Phone: ${contact.phone} [Dispatched: OK]`, 70, yOffset);
+        doc.fontSize(10).font('Helvetica').text(`${index + 1}. ${contact.name} - Phone: ${contact.phone} [Delivery failed]`, 70, yOffset);
         yOffset += 15;
       });
     } else {

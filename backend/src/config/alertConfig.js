@@ -50,7 +50,8 @@ export async function dispatchTieredAlerts({ user, incident }) {
   const results = {
     smsDispatched: false,
     voiceCallsDispatched: false,
-    policeBroadcasted: false
+    policeBroadcasted: false,
+    notificationLogs: []
   };
 
   console.log(`[ALERT CONFIG] Evaluating tiered alerts for incident ${incident.id}: Score=${score}%, Type=${incident.triggerType}`);
@@ -61,8 +62,21 @@ export async function dispatchTieredAlerts({ user, incident }) {
     if (user?.emergencyContacts && user.emergencyContacts.length > 0) {
       console.log(`[ALERT CONFIG] Tier 1 Triggered: Score ${score}% >= ${sms}%. Sending SMS alerts to ${user.emergencyContacts.length} contacts.`);
       try {
-        await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
+        const smsResult = await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
         results.smsDispatched = true;
+        if (smsResult.details) {
+          results.notificationLogs.push(...smsResult.details.map(d => ({
+            channel: 'sms',
+            name: d.name,
+            phone: d.phone,
+            success: d.success,
+            sid: d.sid,
+            status: d.status,
+            errorCode: d.errorCode,
+            errorMessage: d.errorMessage,
+            timestamp: new Date().toISOString()
+          })));
+        }
       } catch (err) {
         console.error('[ALERT CONFIG] Error sending SMS alerts:', err.message);
       }
@@ -78,8 +92,19 @@ export async function dispatchTieredAlerts({ user, incident }) {
 
     // Call fallback emergency number
     try {
-      await TwilioVoiceService.makeEmergencyCall(fallbackNumber, user, incident);
+      const call = await TwilioVoiceService.makeEmergencyCall(fallbackNumber, user, incident);
       results.voiceCallsDispatched = true;
+      results.notificationLogs.push({
+        channel: 'voice',
+        name: 'Fallback Emergency',
+        phone: fallbackNumber,
+        success: call.success,
+        sid: call.sid,
+        status: call.status,
+        errorCode: call.errorCode,
+        errorMessage: call.error,
+        timestamp: new Date().toISOString()
+      });
     } catch (err) {
       console.error('[ALERT CONFIG] Error making fallback emergency voice call:', err.message);
     }
@@ -88,10 +113,30 @@ export async function dispatchTieredAlerts({ user, incident }) {
     if (user?.emergencyContacts && user.emergencyContacts.length > 0) {
       for (const contact of user.emergencyContacts) {
         try {
-          await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
+          const call = await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
           results.voiceCallsDispatched = true;
+          results.notificationLogs.push({
+            channel: 'voice',
+            name: contact.name,
+            phone: contact.phone,
+            success: call.success,
+            sid: call.sid,
+            status: call.status,
+            errorCode: call.errorCode,
+            errorMessage: call.error,
+            timestamp: new Date().toISOString()
+          });
         } catch (callErr) {
           console.error(`[ALERT CONFIG] Failed voice call to ${contact.name} (${contact.phone}):`, callErr.message);
+          results.notificationLogs.push({
+            channel: 'voice',
+            name: contact.name,
+            phone: contact.phone,
+            success: false,
+            errorCode: callErr.code,
+            errorMessage: callErr.message,
+            timestamp: new Date().toISOString()
+          });
         }
       }
     }
