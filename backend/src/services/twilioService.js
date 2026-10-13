@@ -1,4 +1,4 @@
-﻿import dotenv from 'dotenv';
+import dotenv from 'dotenv';
 import twilio from 'twilio';
 
 dotenv.config();
@@ -31,9 +31,30 @@ export class TwilioService {
   static async sendSOSAlert(contacts, user, incident) {
     const message = `ALERT: ${user.name} has triggered an SOS event! Location: https://maps.google.com/?q=${incident.latitude},${incident.longitude}. Live risk level: ${incident.riskScore}%. Please check on them immediately.`;
 
-    const recipients = (!contacts || contacts.length === 0)
-      ? [{ name: 'Fallback Test Recipient', phone: '+919983376352' }]
-      : contacts;
+    // Guard: Do not send SMS if user has no contacts configured.
+    // In development mode only, a test recipient can be specified via DEV_TEST_EMERGENCY_PHONE.
+    let recipients = contacts;
+    if (!recipients || recipients.length === 0) {
+      const isDev = process.env.NODE_ENV !== 'production';
+      const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
+      if (isDev && devTestPhone) {
+        console.log(`[TwilioService] [DEV MODE ONLY] No user contacts. Using DEV_TEST_EMERGENCY_PHONE: ${maskPhone(devTestPhone)}`);
+        recipients = [{ name: 'Dev Test Recipient', phone: devTestPhone }];
+      } else {
+        console.warn(`[TwilioService] No emergency contacts configured for ${user?.name || 'User'}. SOS SMS alert could not be delivered.`);
+        return {
+          success: false,
+          count: 0,
+          totalSent: 0,
+          details: [{
+            phone: 'N/A',
+            name: 'No Contacts Configured',
+            success: false,
+            errorMessage: 'User has no emergency contacts configured. Alert SMS could not be delivered.'
+          }]
+        };
+      }
+    }
 
     console.log(`[TwilioService] Starting SOS alert broadcast...`);
     console.log(`[TwilioService] From: ${twilioPhoneNumber}`);
@@ -68,18 +89,22 @@ export class TwilioService {
           status: response.status
         });
       } catch (error) {
-
         // Log masked recipient phone on failure (only last 4 digits)
         console.error(`[TwilioService] Failed to send SMS to ${name} (${maskPhone(phone)})`);
         console.error(`[TwilioService] Twilio error code: ${error.code || 'N/A'}`);
         console.error(`[TwilioService] Twilio error message: ${error.message}`);
+        if (error.code === 21608 || error.code === 21210) {
+          console.warn(`[TwilioService] [HINT] Twilio trial accounts can only message verified caller IDs. Upgrade your Twilio account to send to arbitrary numbers.`);
+        }
 
         results.push({
           phone,
           name,
           success: false,
           errorCode: error.code,
-          errorMessage: error.message
+          errorMessage: (error.code === 21608 || error.code === 21210)
+            ? `${error.message} (Twilio Trial restriction: recipient unverified)`
+            : error.message
         });
       }
     }

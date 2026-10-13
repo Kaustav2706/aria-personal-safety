@@ -11,8 +11,8 @@ import IncidentLog from './pages/IncidentLog.jsx';
 import ReportView from './pages/ReportView.jsx';
 import Login from './pages/Login.jsx';
 
-// Auth helpers — token lives in localStorage, never in env vars
-import { isAuthenticated, getToken, clearSession } from './api.js';
+// Auth and API helpers
+import { isAuthenticated, getToken, clearSession, API_BASE, policeConfig, createPoliceSocket } from './api.js';
 
 function ProtectedRoute({ children }) {
   if (!isAuthenticated()) {
@@ -27,6 +27,7 @@ function AppContent() {
   const [toasts, setToasts] = useState([]);
   const [activeCount, setActiveCount] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected' | 'reconnecting' | 'disconnected'
 
   const isLoginPage = location.pathname === '/login';
 
@@ -60,10 +61,7 @@ function AppContent() {
 
     const checkActiveIncidents = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        const res = await axios.get(`${API_BASE}/api/police/incidents`, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        });
+        const res = await axios.get(`${API_BASE}/police/incidents`, policeConfig());
         const active = (res.data.incidents || []).filter(i => i.status === 'active').length;
         setActiveCount(active);
       } catch (err) {
@@ -73,19 +71,38 @@ function AppContent() {
 
     checkActiveIncidents();
 
-    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-    const socket = io(SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: 10,
-      // Send JWT in handshake — server rejects the connection if missing/invalid
-      auth: { token: getToken() }
-    });
+    const socket = createPoliceSocket();
 
     socket.on('connect', () => {
+      setConnectionStatus('connected');
       // Register as dispatcher to receive scoped incident broadcasts
       socket.emit('registerDispatcher', {}, (res) => {
         if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration failed:', res?.message);
       });
+      // Refresh count on connect/reconnect
+      checkActiveIncidents();
+    });
+
+    socket.on('reconnect', () => {
+      setConnectionStatus('connected');
+      socket.emit('registerDispatcher', {}, (res) => {
+        if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration re-established:', res?.message);
+      });
+      checkActiveIncidents();
+    });
+
+    socket.on('reconnecting', () => {
+      setConnectionStatus('reconnecting');
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.warn('[SOCKET.IO] Dispatcher socket disconnected:', reason);
+      setConnectionStatus('disconnected');
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('[SOCKET.IO] Connection error:', err.message);
+      setConnectionStatus('reconnecting');
     });
 
     socket.on('incidentCreated', (newIncident) => {
@@ -270,10 +287,28 @@ function AppContent() {
           {/* Separator */}
           <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }} />
 
-          {/* Live Feed Badge */}
-          <div className={`badge ${activeCount > 0 ? 'badge-danger border-glow-red' : 'badge-live'}`} style={{ gap: '6px', transition: 'all 0.3s ease' }}>
-            <span className="pulse-dot" />
-            {activeCount > 0 ? `${activeCount} ACTIVE SOS` : 'LIVE FEED'}
+          {/* Live Feed / Connection Status Badge */}
+          <div className={`badge ${
+            connectionStatus === 'connected'
+              ? (activeCount > 0 ? 'badge-danger border-glow-red' : 'badge-live')
+              : connectionStatus === 'reconnecting'
+                ? 'badge-warning'
+                : 'badge-danger'
+          }`} style={{
+            gap: '6px',
+            transition: 'all 0.3s ease',
+            backgroundColor: connectionStatus === 'connected' ? undefined : (connectionStatus === 'reconnecting' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)'),
+            color: connectionStatus === 'connected' ? undefined : (connectionStatus === 'reconnecting' ? '#f59e0b' : '#ef4444'),
+            borderColor: connectionStatus === 'connected' ? undefined : (connectionStatus === 'reconnecting' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(239, 68, 68, 0.4)')
+          }}>
+            <span className="pulse-dot" style={{
+              backgroundColor: connectionStatus === 'connected'
+                ? (activeCount > 0 ? 'var(--color-danger)' : 'var(--color-success)')
+                : (connectionStatus === 'reconnecting' ? '#f59e0b' : '#ef4444')
+            }} />
+            {connectionStatus === 'connected'
+              ? (activeCount > 0 ? `${activeCount} ACTIVE SOS` : 'DISPATCH LIVE')
+              : (connectionStatus === 'reconnecting' ? 'RECONNECTING...' : 'DISCONNECTED')}
           </div>
 
           {/* Separator */}
@@ -341,8 +376,18 @@ function AppContent() {
         <span>© 2026 ARIA Safety Systems — Encrypted Dispatch Network</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Zap size={11} style={{ color: 'var(--color-success)' }} />
-            System Operational
+            <Zap size={11} style={{
+              color: connectionStatus === 'connected'
+                ? 'var(--color-success)'
+                : connectionStatus === 'reconnecting'
+                  ? '#f59e0b'
+                  : '#ef4444'
+            }} />
+            {connectionStatus === 'connected'
+              ? 'Real-Time Dispatch Link Active'
+              : connectionStatus === 'reconnecting'
+                ? 'Re-establishing Dispatch Link...'
+                : 'Dispatch Link Offline'}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>v2.1.0</span>
         </div>

@@ -2,25 +2,23 @@ import re
 
 class TranscriptAnalyzer:
     def __init__(self):
-        # Critical Phrases (+85 base)
+        # Critical Phrases (+85-90 base) — Direct emergency cries for help
         self.critical_phrases = [
+            "help", "help me", "help me please", "please help me", "please help", "somebody help", "i need help",
+            "save me", "save me please", "im in danger", "i am in danger", "help help",
             "leave me alone", "dont touch me", "don't touch me", "call police", "call the police",
-            "call 911", "call 100", "let me go", "stop following me", "stay away", "back off",
+            "call 911", "call 100", "call 112", "let me go", "stop following me", "stay away", "back off",
             "मुझे छोड़ दो", "छोड़ दो मुझे", "मुझे जाने दो", "मुझे मत छुओ", "मुझे मत मारो",
-            "दूर रहो", "पीछा मत करो", "पुलिस को बुलाओ",
-            "मुझे छोड़ दो", "मुझे जाने दो", "पुलिस को बुलाओ",
-            "bachao", "madad karo", "chodo mujhe", "mujhe chodo", "door raho", "police ko bulao",
-            "get off me", "let go of me", "let go"
+            "दूर रहो", "पीछा मत करो", "पुलिस को बुलाओ", "बचाओ", "मुझे बचाओ", "मदद", "मदद करो", "कोई मेरी मदद करो", "मुझे मदद चाहिए",
+            "bachao", "bachao mujhe", "mujhe bachao", "madad", "madad karo", "chodo mujhe", "mujhe chodo", "door raho", "police ko bulao",
+            "get off me", "let go of me", "let go", "stop it", "please stop"
         ]
         
         # Warning Phrases (+65 base)
         self.warning_phrases = [
-            "help me", "help me please", "somebody help", "i need help", "save me", "save me please", "im in danger",
-            "i am in danger", "i am hurt", "im hurt", "it hurts", "please stop", "stop it",
-            "बचाओ", "मुझे बचाओ", "मदद", "मदद करो", "कोई मेरी मदद करो", "मुझे मदद चाहिए",
+            "i am hurt", "im hurt", "it hurts", "stop", "please stop",
             "रुक जाओ", "मुझे छोड़ो", "मत छुओ", "मत मारो", "कोई है",
-            "\u092c\u091a\u093e\u0913", "\u092e\u0941\u091d\u0947 \u092c\u091a\u093e\u0913", "\u092e\u0926\u0926", "\u092e\u0926\u0926 \u0915\u0930\u094b", "\u0930\u0941\u0915 \u091c\u093e\u0913", "\u092e\u0924 \u092e\u093e\u0930\u094b",
-            "madad", "bachao mujhe", "ruk jao", "mat maro", "koi hai", "help help"
+            "ruk jao", "mat maro", "koi hai"
         ]
         
         # Concern Phrases (+35 base)
@@ -49,7 +47,7 @@ class TranscriptAnalyzer:
         if not text:
             return {
                 "distress": False,
-                "confidence": 10.0,
+                "confidence": 0.0,
                 "threatLevel": "SAFE"
             }
             
@@ -66,9 +64,17 @@ class TranscriptAnalyzer:
         for phrase in self.critical_phrases:
             if phrase in clean_text:
                 matched_level = "CRITICAL"
-                score = 85.0
+                score = 88.0
                 break
                 
+        # Check standalone emergency word boundaries (e.g. "help", "bachao", "madad", "police", "save")
+        if matched_level != "CRITICAL":
+            for kw in ["help", "bachao", "madad", "police", "save"]:
+                if re.search(r"\b" + kw + r"\b", clean_text):
+                    matched_level = "CRITICAL"
+                    score = 88.0
+                    break
+
         # Check Warning if not Critical
         if matched_level != "CRITICAL":
             for phrase in self.warning_phrases:
@@ -76,10 +82,6 @@ class TranscriptAnalyzer:
                     matched_level = "WARNING"
                     score = 65.0
                     break
-
-        if matched_level == "SAFE" and re.search(r"\bhelp\b", clean_text):
-            matched_level = "WARNING"
-            score = 65.0
                     
         # Check Concern if not Warning/Critical
         if matched_level not in ["CRITICAL", "WARNING"]:

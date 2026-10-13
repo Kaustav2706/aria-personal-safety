@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { ShieldCheck, Activity, Search, ShieldAlert, Cpu, Check, Compass, Ear, RefreshCw, Mic, MicOff, AlertTriangle, Square } from 'lucide-react';
 import { monitoringService } from '../services/api';
-import { ChunkAnalysis, BackendIncident } from '../types';
+import { ChunkAnalysis, BackendIncident, EmergencyContact } from '../types';
 
 interface MonitoringViewProps {
+  contacts?: EmergencyContact[];
+  onNavigateToContacts?: () => void;
   onMonitoringChange: (active: boolean) => void;
   onRiskScoreChange: (score: number) => void;
   onIncidentCreated: (incident: BackendIncident) => void;
@@ -11,6 +13,8 @@ interface MonitoringViewProps {
 }
 
 export default function MonitoringView({ 
+  contacts = [],
+  onNavigateToContacts,
   onMonitoringChange, 
   onRiskScoreChange, 
   onIncidentCreated,
@@ -160,6 +164,13 @@ export default function MonitoringView({
   // ── Start Monitoring ──────────────────────────────────────────────────────
   const handleStart = async () => {
     setError('');
+
+    // Safety check: refuse to arm monitoring if no emergency contacts are configured
+    if (!contacts || contacts.length === 0) {
+      setError('Cannot arm monitoring: You have no emergency contacts saved. Please add at least one emergency contact before starting monitoring.');
+      return;
+    }
+
     setIsStarting(true);
 
     try {
@@ -393,11 +404,13 @@ export default function MonitoringView({
 
         // If auto-incident was created
         if (data.autoIncident) {
+          console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
+          await handleStop();
           onIncidentCreated({
             id: data.autoIncident.incidentId,
             userId: '',
             status: 'active',
-            triggerType: data.autoIncident.triggerType,
+            triggerType: data.autoIncident.triggerType || 'monitoring',
             // Only populate coordinates if we have a real GPS fix.
             latitude: currentFix?.lat ?? null,
             longitude: currentFix?.lng ?? null,
@@ -405,6 +418,7 @@ export default function MonitoringView({
             audioTranscript: data.transcript,
             createdAt: new Date().toISOString(),
           });
+          return;
         }
       }
     } catch (err: any) {
@@ -524,6 +538,29 @@ export default function MonitoringView({
         </div>
       )}
 
+      {/* Missing Emergency Contacts Warning Banner */}
+      {(!contacts || contacts.length === 0) && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 mb-5 animate-slide-up">
+          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-xs font-black text-amber-300 uppercase tracking-wide">
+              No Emergency Contacts Configured
+            </p>
+            <p className="text-xs text-on-surface-variant/90 mt-1 leading-relaxed">
+              Monitoring is disarmed. ARIA requires at least one emergency contact to dispatch alerts in distress situations.
+            </p>
+            {onNavigateToContacts && (
+              <button
+                onClick={onNavigateToContacts}
+                className="mt-3 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs uppercase tracking-wider transition-colors cursor-pointer shadow-md"
+              >
+                + Add Emergency Contact
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Error Banner */}
       {error && (
         <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-error-container/15 border border-error/20 mb-4 animate-slide-up">
@@ -537,8 +574,12 @@ export default function MonitoringView({
         {!isActive ? (
           <button
             onClick={handleStart}
-            disabled={isStarting}
-            className="w-full h-14 bg-gradient-to-r from-secondary-container to-[#2578d1] text-white font-bold text-[15px] rounded-2xl shadow-[0_4px_20px_rgba(51,148,241,0.25)] hover:shadow-[0_6px_28px_rgba(51,148,241,0.35)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 relative overflow-hidden"
+            disabled={isStarting || (!contacts || contacts.length === 0)}
+            className={`w-full h-14 font-bold text-[15px] rounded-2xl flex items-center justify-center gap-3 transition-all relative overflow-hidden ${
+              !contacts || contacts.length === 0
+                ? 'bg-surface-container-highest/40 text-on-surface-variant/40 border border-white/10 cursor-not-allowed'
+                : 'bg-gradient-to-r from-secondary-container to-[#2578d1] text-white shadow-[0_4px_20px_rgba(51,148,241,0.25)] hover:shadow-[0_6px_28px_rgba(51,148,241,0.35)] hover:brightness-110 active:scale-[0.98] cursor-pointer'
+            }`}
           >
             <div className="absolute inset-0 shimmer" />
             {isStarting ? (
@@ -546,7 +587,9 @@ export default function MonitoringView({
             ) : (
               <>
                 <Mic className="w-5 h-5 relative z-10" />
-                <span className="relative z-10">Start Monitoring</span>
+                <span className="relative z-10">
+                  {!contacts || contacts.length === 0 ? 'Arming Disabled (No Contacts)' : 'Start Monitoring'}
+                </span>
               </>
             )}
           </button>

@@ -59,27 +59,37 @@ export async function dispatchTieredAlerts({ user, incident }) {
 
   // ── Tier 1: Moderate Score (SMS text message to emergency contacts) ─────
   if (score >= sms || isManual) {
-    if (user?.emergencyContacts && user.emergencyContacts.length > 0) {
-      console.log(`[ALERT CONFIG] Tier 1 Triggered: Score ${score}% >= ${sms}%. Sending SMS alerts to ${user.emergencyContacts.length} contacts.`);
-      try {
-        const smsResult = await TwilioService.sendSOSAlert(user.emergencyContacts, user, incident);
+    const contacts = user?.emergencyContacts || [];
+    console.log(`[ALERT CONFIG] Tier 1 Triggered: Score ${score}% >= ${sms}%. Processing SMS alerts for ${contacts.length} contacts.`);
+    try {
+      const smsResult = await TwilioService.sendSOSAlert(contacts, user, incident);
+      if (smsResult.success) {
         results.smsDispatched = true;
-        if (smsResult.details) {
-          results.notificationLogs.push(...smsResult.details.map(d => ({
-            channel: 'sms',
-            name: d.name,
-            phone: d.phone,
-            success: d.success,
-            sid: d.sid,
-            status: d.status,
-            errorCode: d.errorCode,
-            errorMessage: d.errorMessage,
-            timestamp: new Date().toISOString()
-          })));
-        }
-      } catch (err) {
-        console.error('[ALERT CONFIG] Error sending SMS alerts:', err.message);
       }
+      if (smsResult.details) {
+        results.notificationLogs.push(...smsResult.details.map(d => ({
+          channel: 'sms',
+          name: d.name,
+          phone: d.phone,
+          success: d.success,
+          sid: d.sid,
+          status: d.status || (d.success ? 'sent' : 'undelivered'),
+          errorCode: d.errorCode,
+          errorMessage: d.errorMessage,
+          timestamp: new Date().toISOString()
+        })));
+      }
+    } catch (err) {
+      console.error('[ALERT CONFIG] Error sending SMS alerts:', err.message);
+      results.notificationLogs.push({
+        channel: 'sms',
+        name: 'SMS Dispatch Error',
+        phone: 'N/A',
+        success: false,
+        status: 'failed',
+        errorMessage: err.message,
+        timestamp: new Date().toISOString()
+      });
     }
   } else {
     console.log(`[ALERT CONFIG] Tier 1 Skipped: Score ${score}% < ${sms}% (SMS threshold).`);
@@ -88,40 +98,43 @@ export async function dispatchTieredAlerts({ user, incident }) {
   // ── Tier 2: High Score (Urgent voice phone calls) ────────────────────────
   if (score >= voiceCall || (isManual && score >= 70)) {
     console.log(`[ALERT CONFIG] Tier 2 Triggered: Score ${score}% >= ${voiceCall}%. Initiating voice calls.`);
-    const fallbackNumber = process.env.FALLBACK_EMERGENCY_PHONE || '+919983376352';
+    const contacts = user?.emergencyContacts || [];
+    const isDev = process.env.NODE_ENV !== 'production';
+    const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
 
-    // Call fallback emergency number
-    try {
-      const call = await TwilioVoiceService.makeEmergencyCall(fallbackNumber, user, incident);
-      results.voiceCallsDispatched = true;
-      results.notificationLogs.push({
-        channel: 'voice',
-        name: 'Fallback Emergency',
-        phone: fallbackNumber,
-        success: call.success,
-        sid: call.sid,
-        status: call.status,
-        errorCode: call.errorCode,
-        errorMessage: call.error,
-        timestamp: new Date().toISOString()
-      });
-    } catch (err) {
-      console.error('[ALERT CONFIG] Error making fallback emergency voice call:', err.message);
+    let voiceRecipients = contacts;
+    if (!voiceRecipients || voiceRecipients.length === 0) {
+      if (isDev && devTestPhone) {
+        console.log(`[ALERT CONFIG] [DEV MODE ONLY] No user contacts configured. Dialing DEV_TEST_EMERGENCY_PHONE for testing.`);
+        voiceRecipients = [{ name: 'Dev Test Recipient', phone: devTestPhone }];
+      } else {
+        console.warn(`[ALERT CONFIG] No emergency contacts configured for ${user?.name || 'User'}. Voice alert call could not be placed.`);
+        results.notificationLogs.push({
+          channel: 'voice',
+          name: 'No Contacts Configured',
+          phone: 'N/A',
+          success: false,
+          status: 'undelivered',
+          errorMessage: 'User has no emergency contacts configured. Voice alert call could not be placed.',
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
-    // Call individual emergency contacts
-    if (user?.emergencyContacts && user.emergencyContacts.length > 0) {
-      for (const contact of user.emergencyContacts) {
+    if (voiceRecipients && voiceRecipients.length > 0) {
+      for (const contact of voiceRecipients) {
         try {
           const call = await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
-          results.voiceCallsDispatched = true;
+          if (call.success) {
+            results.voiceCallsDispatched = true;
+          }
           results.notificationLogs.push({
             channel: 'voice',
             name: contact.name,
             phone: contact.phone,
             success: call.success,
             sid: call.sid,
-            status: call.status,
+            status: call.status || (call.success ? 'queued' : 'failed'),
             errorCode: call.errorCode,
             errorMessage: call.error,
             timestamp: new Date().toISOString()
@@ -133,6 +146,7 @@ export async function dispatchTieredAlerts({ user, incident }) {
             name: contact.name,
             phone: contact.phone,
             success: false,
+            status: 'failed',
             errorCode: callErr.code,
             errorMessage: callErr.message,
             timestamp: new Date().toISOString()

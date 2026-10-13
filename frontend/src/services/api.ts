@@ -81,6 +81,11 @@ export const authService = {
 
 export const profileService = {
   getProfile: () => api.get('/api/user/profile'),
+  updateProfile: (data: {
+    name?: string;
+    phone?: string;
+    emergencyContacts?: Array<{ name: string; phone: string }>;
+  }) => api.put('/api/user/profile', data),
 };
 
 export const monitoringService = {

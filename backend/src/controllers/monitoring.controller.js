@@ -4,9 +4,6 @@ import { MonitoringSession } from '../models/MonitoringSession.model.js';
 import { AIService } from '../services/aiService.js';
 import { AudioEvidenceService } from '../services/audioEvidenceService.js';
 import { StorageService } from '../services/storageService.js';
-import { TwilioService } from '../services/twilioService.js';
-import { TwilioVoiceService } from '../services/twilioVoiceService.js';
-import { FirebaseService } from '../services/firebaseService.js';
 import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { get as redisGet, set as redisSet } from '../config/redis.js';
@@ -121,11 +118,12 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
   const { distress, confidence, transcript, riskScore } = analysis;
 
-  if (!analysis.available) {
+  if (!analysis.available || analysis.audioStatus === 'could_not_be_read') {
     return res.status(200).json({
       success: true,
-      analysisAvailable: false,
-      message: analysis.message,
+      analysisAvailable: analysis.available,
+      audioStatus: analysis.audioStatus || 'unavailable',
+      message: analysis.message || 'Audio could not be read. No incident triggered.',
       autoIncident: null
     });
   }
@@ -133,8 +131,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
   console.log(`[MONITORING] Analysis complete — User: ${userId} | Risk: ${riskScore} | Distress: ${distress} | Confidence: ${confidence}`);
 
   // 4. Determine if auto-incident creation should be triggered
-  //    Thresholds: riskScore >= 80 OR (distress === true AND confidence >= 85)
-  const shouldTrigger = riskScore >= 80 || (distress === true && confidence >= 85);
+  //    Triggers when distress is confirmed (confidence >= 60) OR risk score reaches alert threshold (>= 60)
+  const shouldTrigger = (distress === true && confidence >= 60) || riskScore >= 60;
   let autoIncident = null;
 
   if (shouldTrigger) {

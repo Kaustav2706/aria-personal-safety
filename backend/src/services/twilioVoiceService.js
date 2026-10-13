@@ -1,4 +1,4 @@
-﻿import dotenv from 'dotenv';
+import dotenv from 'dotenv';
 import twilio from 'twilio';
 
 dotenv.config();
@@ -20,20 +20,20 @@ export class TwilioVoiceService {
   static async makeEmergencyCall(phoneNumber, user, incident) {
     console.log(`[TwilioVoiceService] Preparing emergency voice call...`);
 
-    //1. fixed, logs only last 4 digits of the phone number
-    console.log(`[TwilioVoiceService] Recipient: ***${phoneNumber.slice(-4)}`);
-    console.log(`[TwilioVoiceService] User: ${user.name} (ID: ${user.id})`);
-    console.log(`[TwilioVoiceService] Incident ID: ${incident.id} (Risk: ${incident.riskScore}%)`);
+    const safePhone = typeof phoneNumber === 'string' ? phoneNumber : '';
+    const masked = safePhone.length >= 4 ? `***${safePhone.slice(-4)}` : '******';
+
+    console.log(`[TwilioVoiceService] Recipient: ${masked}`);
+    console.log(`[TwilioVoiceService] User: ${user?.name || 'Unknown'} (ID: ${user?.id || 'N/A'})`);
+    console.log(`[TwilioVoiceService] Incident ID: ${incident?.id || 'N/A'} (Risk: ${incident?.riskScore || 0}%)`);
 
     // Spoken message TwiML construct
-    const speakMessage = `Emergency alert from ARIA. A critical threat has been triggered for user ${user.name || 'Unknown User'}. The threat risk level is ${incident.riskScore || 0} percent. The trigger type is ${incident.triggerType || 'unknown'}. The incident location is latitude ${incident.latitude || 'unknown'}, longitude ${incident.longitude || 'unknown'}. Please respond immediately.`;
+    const speakMessage = `Emergency alert from ARIA. A critical threat has been triggered for user ${user?.name || 'Unknown User'}. The threat risk level is ${incident?.riskScore || 0} percent. The trigger type is ${incident?.triggerType || 'unknown'}. The incident location is latitude ${incident?.latitude || 'unknown'}, longitude ${incident?.longitude || 'unknown'}. Please respond immediately.`;
 
     const twimlContent = `<Response><Say voice="alice" language="en-US">${speakMessage}</Say></Response>`;
 
     try {
-
-      //2. fixed, logs only last 4 digits of the phone number
-      console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ***${phoneNumber.slice(-4)}`);
+      console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ${masked}`);
 
       const call = await client.calls.create({
         twiml: twimlContent,
@@ -41,8 +41,7 @@ export class TwilioVoiceService {
         from: twilioPhoneNumber
       });
 
-      //3. fixed, logs only last 4 digits of the phone number
-      console.log(`[TwilioVoiceService] Voice call successfully initiated to ***${phoneNumber.slice(-4)}`);
+      console.log(`[TwilioVoiceService] Voice call successfully initiated to ${masked}`);
       console.log(`[TwilioVoiceService] Twilio Call SID: ${call.sid}`);
       console.log(`[TwilioVoiceService] Call Status: ${call.status}`);
 
@@ -52,15 +51,18 @@ export class TwilioVoiceService {
         status: call.status
       };
     } catch (error) {
-
-      //4. fixed, logs only last 4 digits of the phone number
-      console.error(`[TwilioVoiceService] Emergency voice call to ***${phoneNumber.slice(-4)} failed:`);
+      console.error(`[TwilioVoiceService] Emergency voice call to ${masked} failed:`);
       console.error(`[TwilioVoiceService] Twilio error code: ${error.code || 'N/A'}`);
       console.error(`[TwilioVoiceService] Twilio error message: ${error.message}`);
+      if (error.code === 21210 || error.code === 21608) {
+        console.warn(`[TwilioVoiceService] [HINT] Twilio trial accounts can only call verified caller IDs. Upgrade your Twilio account to call arbitrary numbers.`);
+      }
 
       return {
         success: false,
-        error: error.message || error,
+        error: (error.code === 21210 || error.code === 21608)
+          ? `${error.message} (Twilio Trial restriction: recipient unverified)`
+          : (error.message || error),
         errorCode: error.code
       };
     }

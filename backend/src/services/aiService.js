@@ -74,10 +74,13 @@ export class AIService {
 
       return {
         available: true,
+        status: res.data.status || 'OK',
+        audioStatus: res.data.audio_status || res.data.status || 'OK',
         distress: res.data.distress,
         confidence: res.data.confidence,
         transcript: res.data.transcript,
-        riskScore: res.data.risk_score ?? res.data.riskScore ?? 50
+        riskScore: res.data.risk_score ?? res.data.riskScore ?? 0,
+        threatLevel: res.data.threat_level || res.data.threatLevel || 'SAFE'
       };
     } catch (err) {
       console.warn(`[AI SERVICE INTEGRATOR] AI analysis unavailable: ${err.message}`);

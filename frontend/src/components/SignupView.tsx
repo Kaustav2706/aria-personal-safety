@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, User, Phone, Mail, Lock, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { authService } from '../services/api';
 import { setRefreshToken, setToken, setUser } from '../services/auth';
+import { getContacts } from '../services/contacts';
 
 interface SignupProps {
   onRegisterComplete: () => void;
@@ -40,7 +41,10 @@ export default function SignupView({ onRegisterComplete, onGoToLogin }: SignupPr
     setIsSubmitting(true);
 
     try {
-      const res = await authService.register(fullName, email, phone, password);
+      const storedContacts = getContacts()
+        .filter((c) => c.id !== '1' && c.id !== '2' && c.id !== '3')
+        .map((c) => ({ name: c.name, phone: c.phone }));
+      const res = await authService.register(fullName, email, phone, password, storedContacts);
 
       if (res.data.success) {
         setToken(res.data.token);

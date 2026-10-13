@@ -5,8 +5,21 @@
  */
 
 import { EmergencyContact } from '../types';
+import { profileService } from './api';
 
 const CONTACTS_KEY = 'aria_emergency_contacts';
+
+/** Sync local contacts up to the backend database */
+export async function syncContactsToBackend(contacts: EmergencyContact[]): Promise<boolean> {
+  try {
+    const formatted = contacts.map((c) => ({ name: c.name, phone: c.phone }));
+    await profileService.updateProfile({ emergencyContacts: formatted });
+    return true;
+  } catch (err) {
+    console.warn('[CONTACTS] Failed to sync contacts to server:', err);
+    return false;
+  }
+}
 
 /** Retrieve all stored contacts */
 export function getContacts(): EmergencyContact[] {

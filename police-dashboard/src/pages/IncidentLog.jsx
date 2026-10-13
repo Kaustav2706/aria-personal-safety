@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Search, FileText, CheckCircle2, AlertOctagon, Filter, RefreshCw, Trash2 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-import { policeConfig } from '../api.js';
+import { policeConfig, API_BASE } from '../api.js';
 
 export default function IncidentLog() {
   const navigate = useNavigate();

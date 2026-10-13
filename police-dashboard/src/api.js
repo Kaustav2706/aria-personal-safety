@@ -5,10 +5,35 @@
  * The JWT token is stored in localStorage (session-scoped, never in env vars).
  * All police API calls automatically include the Bearer token.
  */
-
 import axios from 'axios';
+import io from 'socket.io-client';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Clean base URL: strip trailing slashes and guarantee /api suffix for REST
+const rawApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
+export const API_BASE = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
+
+// Extract server root without /api for Socket.io connection
+export const SOCKET_URL = (
+  import.meta.env.VITE_SOCKET_URL ||
+  rawApiUrl.replace(/\/api$/, '') ||
+  'http://localhost:5000'
+).replace(/\/+$/, '');
+
+/**
+ * Creates a pre-configured Socket.IO connection with automatic reconnection,
+ * dual transports (websocket + polling), and dispatcher JWT handshake.
+ */
+export function createPoliceSocket() {
+  return io(SOCKET_URL, {
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    transports: ['websocket', 'polling'],
+    auth: { token: getToken() }
+  });
+}
 
 const TOKEN_KEY = 'aria_police_token';
 const USER_KEY  = 'aria_police_user';
@@ -69,5 +94,3 @@ export async function loginDispatcher(email, password) {
   setSession(token, user);
   return { token, user };
 }
-
-export { API_BASE };

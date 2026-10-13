@@ -17,10 +17,7 @@ import {
   Shield,
   Trash2
 } from 'lucide-react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-import { policeConfig, getToken } from '../api.js';
+import { policeConfig, API_BASE, createPoliceSocket } from '../api.js';
 
 export default function LiveMap() {
   const navigate = useNavigate();
@@ -104,19 +101,22 @@ export default function LiveMap() {
   useEffect(() => {
     fetchActiveIncidents();
 
-    const socket = io(SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: 15,
-      reconnectionDelay: 1500,
-      // Send JWT in handshake — server rejects the connection if missing/invalid
-      auth: { token: getToken() }
-    });
+    const socket = createPoliceSocket();
 
-    socket.on('connect', () => {
-      // Register as dispatcher to join the scoped broadcast room
+    const registerDispatcher = () => {
       socket.emit('registerDispatcher', {}, (res) => {
         if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration failed:', res?.message);
       });
+    };
+
+    socket.on('connect', () => {
+      registerDispatcher();
+      fetchActiveIncidents();
+    });
+
+    socket.on('reconnect', () => {
+      registerDispatcher();
+      fetchActiveIncidents();
     });
 
     socket.on('incidentCreated', (newIncident) => {
@@ -126,7 +126,7 @@ export default function LiveMap() {
         return [newIncident, ...prev];
       });
       setSelectedIncident(newIncident);
-      if (mapInstance.current) {
+      if (mapInstance.current && newIncident.latitude && newIncident.longitude) {
         mapInstance.current.setView([newIncident.latitude, newIncident.longitude], 14);
       }
     });
@@ -135,9 +135,7 @@ export default function LiveMap() {
       setIncidents((prev) => prev.map(inc =>
         inc.id === incidentId ? { ...inc, status: 'resolved' } : inc
       ));
-      if (selectedIncident?.id === incidentId) {
-        setSelectedIncident(prev => prev ? { ...prev, status: 'resolved' } : null);
-      }
+      setSelectedIncident(prev => (prev?.id === incidentId ? { ...prev, status: 'resolved' } : prev));
     });
 
     socket.on('globalLocationUpdate', (data) => {
@@ -150,7 +148,7 @@ export default function LiveMap() {
     });
 
     return () => { socket.disconnect(); };
-  }, [selectedIncident]);
+  }, []);
 
   useEffect(() => {
     if (!mapInstance.current) return;

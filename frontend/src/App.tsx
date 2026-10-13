@@ -19,11 +19,22 @@ import DashboardView from './components/DashboardView';
 import MonitoringView from './components/MonitoringView';
 import SafeRideView from './components/SafeRideView';
 import ActiveSOSView from './components/ActiveSOSView';
+import SOSFailureView from './components/SOSFailureView';
 import HistoryView from './components/HistoryView';
 import IncidentDetailsView from './components/IncidentDetailsView';
 import ProfileView from './components/ProfileView';
 import ContactsView from './components/ContactsView';
 import ErrorBoundary from './components/ErrorBoundary';
+
+// Offline retry queue
+import {
+  enqueueAlert,
+  processRetryQueue,
+  removeQueuedAlert,
+  subscribeToQueue,
+  onQueuedAlertDelivered,
+  type QueuedAlert,
+} from './services/offlineQueue';
 
 // Nav and layout helpers
 import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTriangle, Radio, X } from 'lucide-react';
@@ -92,6 +103,11 @@ export default function App() {
   const [sosRiskScore, setSosRiskScore] = useState(0);
   const [sosTranscript, setSosTranscript] = useState('');
 
+  // Offline SOS & retry queue state
+  const [queuedAlerts, setQueuedAlerts] = useState<QueuedAlert[]>([]);
+  const [activeFailedAlert, setActiveFailedAlert] = useState<QueuedAlert | null>(null);
+  const [isRetryingAlert, setIsRetryingAlert] = useState(false);
+
   // ── Auth state check on mount ───────────────────────────────────────────
   useEffect(() => {
     // Listen for 401 unauthorized events from the API interceptor
@@ -107,6 +123,7 @@ export default function App() {
   // ── Load user data after authentication ─────────────────────────────────
   const loadUserData = useCallback(async () => {
     setIncidentsLoading(true);
+    let serverUserContacts: EmergencyContact[] | null = null;
     try {
       // Load profile from backend
       const profileRes = await profileService.getProfile();
@@ -133,6 +150,17 @@ export default function App() {
           } catch {}
         } else {
           setProfile(base);
+        }
+
+        // If backend already has emergency contacts, parse them
+        if (Array.isArray(u.emergencyContacts) && u.emergencyContacts.length > 0) {
+          serverUserContacts = u.emergencyContacts.map((c: any, idx: number) => ({
+            id: `c-server-${idx}-${Date.now()}`,
+            name: c.name,
+            phone: c.phone,
+            priority: 'High' as const,
+            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=2c1b1a&color=fadcd8&size=200`,
+          }));
         }
       }
     } catch (err: any) {
@@ -174,10 +202,29 @@ export default function App() {
       setIncidentsLoading(false);
     }
 
-    // Load contacts from local storage
+    // ── Emergency contacts synchronization ──
     const storedContacts = getContacts().filter(c => c.id !== '1' && c.id !== '2' && c.id !== '3');
-    saveContacts(storedContacts);
-    setContacts(storedContacts);
+
+    if (serverUserContacts && serverUserContacts.length > 0) {
+      // Server already has verified contacts for this user — populate local storage & state
+      saveContacts(serverUserContacts);
+      setContacts(serverUserContacts);
+    } else if (storedContacts.length > 0) {
+      // Server has no contacts, but browser storage has them (existing user or onboarding).
+      // Push anything already sitting in browser storage up to the server!
+      saveContacts(storedContacts);
+      setContacts(storedContacts);
+      try {
+        await profileService.updateProfile({
+          emergencyContacts: storedContacts.map(c => ({ name: c.name, phone: c.phone })),
+        });
+        console.log('[APP] Synchronized local contacts to backend on login');
+      } catch (syncErr) {
+        console.warn('[APP] Failed to sync local contacts to backend on login:', syncErr);
+      }
+    } else {
+      setContacts([]);
+    }
 
     // Connect Socket.IO
     connectSocket();
@@ -199,6 +246,17 @@ export default function App() {
         `🚨 New incident detected: ${data.id}`,
         ...prev,
       ]);
+
+      // If an active incident was created while in monitoring or dashboard, redirect to SOS_ACTIVE
+      if (data.status === 'active' && (data.triggerType === 'monitoring' || data.triggerType === 'audio')) {
+        setSosIncidentId(data.id);
+        setSosRiskScore(data.riskScore || 85);
+        setSosTranscript(data.audioTranscript || '');
+        setRiskScore(data.riskScore || 85);
+        setMonitoringActive(false);
+        setActiveFailedAlert(null);
+        setCurrentScreen('SOS_ACTIVE');
+      }
     });
 
     const unsubResolved = onIncidentResolved((data: { incidentId: string }) => {
@@ -235,7 +293,12 @@ export default function App() {
     const checkHealth = async () => {
       try {
         const res = await healthService.check();
-        setBackendOnline(res.data.success === true);
+        const isOnline = res.data.success === true;
+        setBackendOnline(isOnline);
+        if (isOnline) {
+          // If connectivity recovered, immediately attempt sending any queued alerts
+          processRetryQueue();
+        }
       } catch {
         setBackendOnline(false);
       }
@@ -249,21 +312,89 @@ export default function App() {
     return () => { if (interval) clearInterval(interval); };
   }, [currentScreen]);
 
+  // ── Offline SOS Queue listeners ─────────────────────────────────────────
+  useEffect(() => {
+    const unsubQueue = subscribeToQueue((queue) => {
+      setQueuedAlerts(queue);
+      if (activeFailedAlert) {
+        const found = queue.find((q) => q.id === activeFailedAlert.id);
+        if (found) {
+          setActiveFailedAlert(found);
+        }
+      }
+    });
+
+    const unsubDelivered = onQueuedAlertDelivered((inc: any, alertItem: QueuedAlert) => {
+      console.log('[APP] Queued SOS alert landed on backend:', inc.id);
+      const newItem = backendToIncidentItem(inc);
+      setIncidents((prev) => {
+        const exists = prev.some((i) => i.id === newItem.id);
+        if (exists) return prev;
+        return [newItem, ...prev];
+      });
+
+      setSosIncidentId(inc.id);
+      setSosRiskScore(inc.riskScore);
+      setSosTranscript(inc.audioTranscript || alertItem.audioTranscript || '');
+      setRiskScore(inc.riskScore);
+      setActiveFailedAlert(null);
+
+      // Auto-transition user to SOS_ACTIVE if they were waiting on SOS_FAILED
+      setCurrentScreen((prev) => (prev === 'SOS_FAILED' ? 'SOS_ACTIVE' : prev));
+
+      setActiveNotifications((prev) => [
+        `🚨 Queued SOS delivered to dispatch! ID: ${inc.id}`,
+        ...prev,
+      ]);
+    });
+
+    return () => {
+      unsubQueue();
+      unsubDelivered();
+    };
+  }, [activeFailedAlert]);
+
   // ── Profile updates ─────────────────────────────────────────────────────
-  const handleUpdateProfile = (updated: UserProfile) => {
+  const handleUpdateProfile = async (updated: UserProfile) => {
     setProfile(updated);
     localStorage.setItem('aria_user_profile_overrides', JSON.stringify(updated));
+    try {
+      await profileService.updateProfile({
+        name: updated.name,
+        phone: updated.phone || updated.emergencyPhone,
+      });
+    } catch (err) {
+      console.warn('[APP] Failed to sync profile updates to backend:', err);
+    }
   };
 
   // ── Contacts mutations ──────────────────────────────────────────────────
-  const handleAddContact = (newContact: Omit<EmergencyContact, 'id'>) => {
-    const created = addContactLocal(newContact);
-    setContacts(getContacts());
+  const handleAddContact = async (newContact: Omit<EmergencyContact, 'id'>) => {
+    addContactLocal(newContact);
+    const updated = getContacts();
+    setContacts(updated);
+    try {
+      await profileService.updateProfile({
+        emergencyContacts: updated.map(c => ({ name: c.name, phone: c.phone })),
+      });
+      console.log('[APP] Successfully synced added contact to backend');
+    } catch (err) {
+      console.warn('[APP] Failed to sync added contact to backend:', err);
+    }
   };
 
-  const handleDeleteContact = (id: string) => {
+  const handleDeleteContact = async (id: string) => {
     removeContactLocal(id);
-    setContacts(getContacts());
+    const updated = getContacts();
+    setContacts(updated);
+    try {
+      await profileService.updateProfile({
+        emergencyContacts: updated.map(c => ({ name: c.name, phone: c.phone })),
+      });
+      console.log('[APP] Successfully synced deleted contact to backend');
+    } catch (err) {
+      console.warn('[APP] Failed to sync deleted contact to backend:', err);
+    }
   };
 
   // ── Authentication handlers ─────────────────────────────────────────────
@@ -315,7 +446,7 @@ export default function App() {
 
       const res = await incidentService.create(formData);
 
-      if (res.data.success && res.data.incident) {
+      if (res.data && res.data.success && res.data.incident) {
         const inc = res.data.incident;
         setSosIncidentId(inc.id);
         setSosRiskScore(inc.riskScore);
@@ -330,16 +461,54 @@ export default function App() {
           return [newItem, ...prev];
         });
 
+        setActiveFailedAlert(null);
         setCurrentScreen('SOS_ACTIVE');
+      } else {
+        throw new Error(res.data?.message || 'Emergency server rejected incident creation');
       }
     } catch (err: any) {
       console.error('[SOS] Failed to create incident:', err);
-      // Fallback: still go to SOS screen with mock data
-      setSosIncidentId('SOS-' + Date.now());
-      setSosRiskScore(80);
-      setSosTranscript('Emergency SOS triggered.');
-      setCurrentScreen('SOS_ACTIVE');
+      // Delete the fallback: do NOT show fake active SOS with mock ID and score.
+      // Hold in persistent retry queue and transition to explicit failure screen with direct 112 dialler.
+      const errorMsg =
+        err?.response?.data?.message ||
+        (!navigator.onLine
+          ? 'Network offline — no internet connection available.'
+          : err?.message || 'Emergency dispatch server unreachable.');
+
+      const queued = enqueueAlert({
+        triggerType,
+        latitude,
+        longitude,
+        locationUnavailable,
+        audioTranscript: extraInfo,
+        error: errorMsg,
+      });
+
+      setActiveFailedAlert(queued);
+      setCurrentScreen('SOS_FAILED');
+      setActiveNotifications((prev) => [
+        `⚠️ Emergency alert failed to send — queued for retry. Call 112 directly.`,
+        ...prev,
+      ]);
     }
+  };
+
+  const handleRetryFailedSOS = async () => {
+    setIsRetryingAlert(true);
+    try {
+      await processRetryQueue();
+    } finally {
+      setIsRetryingAlert(false);
+    }
+  };
+
+  const handleCancelQueuedAlert = () => {
+    if (activeFailedAlert) {
+      removeQueuedAlert(activeFailedAlert.id);
+      setActiveFailedAlert(null);
+    }
+    setCurrentScreen('DASHBOARD');
   };
 
   const handleDeleteIncident = async (id: string) => {
@@ -582,6 +751,34 @@ export default function App() {
           </header>
         )}
 
+        {/* Offline SOS Retry Queue Persistent Warning Banner */}
+        {queuedAlerts.length > 0 && currentScreen !== 'SOS_FAILED' && currentScreen !== 'SOS_ACTIVE' && (
+          <div 
+            onClick={() => {
+              setActiveFailedAlert(queuedAlerts[0]);
+              setCurrentScreen('SOS_FAILED');
+            }}
+            className="mx-4 mb-3 p-3.5 rounded-2xl bg-gradient-to-r from-red-950/80 to-red-900/60 border border-red-500/50 flex items-center justify-between cursor-pointer hover:border-red-400 transition-all shadow-[0_0_20px_rgba(239,68,68,0.25)] animate-pulse"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-600/30 flex items-center justify-center text-red-400 shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-black text-white uppercase tracking-wide">
+                  ⚠️ {queuedAlerts.length} SOS Alert NOT Sent
+                </p>
+                <p className="text-[11px] text-red-200/90 font-medium">
+                  Dispatch unreached. Tap to call 112 directly.
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] uppercase font-black px-2.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg shadow-sm">
+              Call 112
+            </span>
+          </div>
+        )}
+
         {/* Dashboard View Routing Content */}
         {currentScreen === 'DASHBOARD' && (
           <DashboardView 
@@ -597,6 +794,8 @@ export default function App() {
 
         {currentScreen === 'MONITORING' && (
           <MonitoringView 
+            contacts={contacts}
+            onNavigateToContacts={() => setCurrentScreen('CONTACTS')}
             onMonitoringChange={setMonitoringActive}
             onRiskScoreChange={setRiskScore}
             onIncidentCreated={(inc) => {
@@ -606,6 +805,14 @@ export default function App() {
                 if (exists) return prev;
                 return [newItem, ...prev];
               });
+              // Auto-redirect to SOS_ACTIVE screen
+              setSosIncidentId(inc.id);
+              setSosRiskScore(inc.riskScore || 85);
+              setSosTranscript(inc.audioTranscript || '');
+              setRiskScore(inc.riskScore || 85);
+              setMonitoringActive(false);
+              setActiveFailedAlert(null);
+              setCurrentScreen('SOS_ACTIVE');
             }}
             onTriggerSOS={handleTriggerSOS}
           />
@@ -622,6 +829,18 @@ export default function App() {
             incidentId={sosIncidentId}
             riskScore={sosRiskScore}
             transcript={sosTranscript}
+          />
+        )}
+
+        {currentScreen === 'SOS_FAILED' && (
+          <SOSFailureView 
+            queuedAlert={activeFailedAlert || queuedAlerts[0] || null}
+            primaryContactName={contacts[0]?.name || 'Emergency Contact'}
+            primaryContactPhone={contacts[0]?.phone}
+            isRetrying={isRetryingAlert}
+            onRetryNow={handleRetryFailedSOS}
+            onCancelAlert={handleCancelQueuedAlert}
+            onReturnDashboard={() => setCurrentScreen('DASHBOARD')}
           />
         )}
 
@@ -783,7 +1002,7 @@ export default function App() {
                 {([
                   'SPLASH', 'ONBOARDING_1', 'ONBOARDING_2', 'PERMISSION_SETUP', 
                   'SECURE_LOGIN', 'SECURE_SIGNUP', 'DASHBOARD', 'CONTACTS',
-                  'MONITORING', 'SAFE_RIDE', 'SOS_ACTIVE', 'HISTORY', 'PROFILE'
+                  'MONITORING', 'SAFE_RIDE', 'SOS_ACTIVE', 'SOS_FAILED', 'HISTORY', 'PROFILE'
                 ] as Screen[]).map((scKey) => (
                   <button
                     key={scKey}

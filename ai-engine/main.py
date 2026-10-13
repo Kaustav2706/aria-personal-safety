@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from whisper_detector import WhisperDetector
 from tone_classifier import ToneClassifier
 from context_scorer import ContextScorer
+from audio_metrics import audio_metrics
 
 # Load root .env and local .env for direct uvicorn starts. Values
 # already supplied by the hosting environment take precedence.
@@ -64,8 +65,13 @@ def health_check():
     return {
         "status": "ONLINE" if ready else "DEGRADED",
         "service": "ARIA AI Engine",
-        "analysisReady": ready
+        "analysisReady": ready,
+        "audioPipeline": audio_metrics.get_stats()
     }
+
+@app.get("/metrics")
+def get_metrics():
+    return audio_metrics.get_stats()
 
 @app.post("/analyze")
 async def analyze_incident_audio(
@@ -107,27 +113,63 @@ async def analyze_incident_audio(
             temp_file.write(content)
             temp_file_path = temp_file.name
 
-        # 1. Run Whisper transcription, passing the user's preferred language
+        # 1. Run Whisper transcription
         whisper_result = await run_in_threadpool(
             whisper.transcribe_audio,
             temp_file_path,
             original_filename=file.filename,
-            # The caller's profile/UI language is not necessarily the spoken
-            # language. Use Whisper's multilingual audio detection by default.
-            language=None
+            language=language if language else None
         )
+
+        # Handle unreadable audio cleanly without inventing distress phrases:
+        # return empty transcript, zero risk score, and explicit status
+        if whisper_result.get("status") == "could_not_be_read":
+            print("[AI ENGINE] Transcription failed/audio unreadable. Returning empty transcript and zero risk score.")
+            return {
+                "status": "could_not_be_read",
+                "audio_status": "could_not_be_read",
+                "message": whisper_result.get("error", "Audio could not be read"),
+                "distress": False,
+                "confidence": 0.0,
+                "transcript": "",
+                "riskScore": 0,
+                "risk_score": 0,
+                "threatLevel": "SAFE",
+                "threat_level": "SAFE"
+            }
+
         if not whisper_result.get("available", False):
-            raise HTTPException(status_code=503, detail="AI analysis unavailable: audio transcription failed.")
+            raise HTTPException(status_code=503, detail="AI analysis unavailable: speech model is not ready.")
 
         # 2. Run Acoustic classifier with actual audio file path to detect shouting/RMS volume
-        tone_conf = await run_in_threadpool(
+        tone_result = await run_in_threadpool(
             tone.classify_voice_tone,
             temp_file_path,
             original_filename=file.filename,
-            distress_flagged=whisper_result["distress_flagged"]
+            distress_flagged=whisper_result.get("distress_flagged", False)
         )
-        if tone_conf is None:
-            raise HTTPException(status_code=503, detail="AI analysis unavailable: audio signal could not be decoded.")
+
+        tone_measured = tone_result.get("measured", False) if isinstance(tone_result, dict) else (tone_result is not None)
+        tone_conf = tone_result.get("confidence") if isinstance(tone_result, dict) else tone_result
+
+        # If both speech transcription failed AND acoustic measurement failed:
+        if whisper_result.get("status") == "could_not_be_read" and not tone_measured:
+            print("[AI ENGINE] Both transcription and acoustic tone measurement failed. Audio unreadable.")
+            audio_metrics.record_failure("audio_unreadable_both_failed")
+            return {
+                "status": "could_not_be_read",
+                "audio_status": "could_not_be_read",
+                "message": "Both transcription and acoustic tone measurement failed.",
+                "distress": False,
+                "confidence": 0.0,
+                "transcript": "",
+                "riskScore": 0,
+                "risk_score": 0,
+                "threatLevel": "SAFE",
+                "threat_level": "SAFE",
+                "acoustic_measured": False,
+                "tone_confidence": None
+            }
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
@@ -140,17 +182,39 @@ async def analyze_incident_audio(
     whisper_conf = whisper_result["confidence"] if whisper_result else 0.0
     threat_level = whisper_result.get("threatLevel", "SAFE") if whisper_result else "SAFE"
 
-    # Elevate threat_level if acoustic classifier detects shouting/screaming
-    if tone_conf >= 85.0:
-        threat_level = "CRITICAL"
-        print(f"[AI ENGINE] Threat level elevated to CRITICAL based on shouting volume (tone_conf={tone_conf}%)")
-    elif tone_conf >= 75.0 and threat_level != "CRITICAL":
-        threat_level = "WARNING"
-        print(f"[AI ENGINE] Threat level elevated to WARNING based on shouting volume (tone_conf={tone_conf}%)")
+    # Acoustic elevation: applied ONLY if tone was successfully measured
+    if tone_measured and tone_conf is not None:
+        if tone_conf >= 85.0:
+            threat_level = "CRITICAL"
+            print(f"[AI ENGINE] Threat level elevated to CRITICAL based on shouting volume (tone_conf={tone_conf}%)")
+        elif tone_conf >= 75.0 and threat_level != "CRITICAL":
+            threat_level = "WARNING"
+            print(f"[AI ENGINE] Threat level elevated to WARNING based on shouting volume (tone_conf={tone_conf}%)")
 
-    # Combined distress status check
-    is_distress = whisper_flag or tone_conf >= 75.0
-    combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
+    # Combined distress status check:
+    # If tone is missing, distress is determined solely by Whisper (missing is treated as missing, not false)
+    if tone_measured and tone_conf is not None:
+        is_distress = whisper_flag or tone_conf >= 75.0
+    else:
+        is_distress = whisper_flag
+
+    # Combining confidence scores:
+    # "Anywhere downstream that combines scores should treat a missing input as missing, not as zero and not as a guess."
+    if tone_measured and tone_conf is not None:
+        # Both Whisper and Tone measurements are available
+        if whisper_flag and tone_conf >= 75.0:
+            combined_confidence = min(100.0, max(whisper_conf, tone_conf) + 10.0)
+        elif whisper_flag:
+            combined_confidence = max(whisper_conf, tone_conf)
+        elif tone_conf >= 75.0:
+            combined_confidence = tone_conf
+        else:
+            combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
+    else:
+        # Tone measurement failed: treat tone input as MISSING (not zero, not guessed)
+        # Confidence is derived strictly from the available Whisper input
+        print("[AI ENGINE] Tone measurement failed/missing. Treating tone input as missing (not zero, not guessed).")
+        combined_confidence = whisper_conf
 
     # 3. Context Scorer calculation using weights:
     # Distress Confidence (55%), Threat Level (25%), Isolation (10%), Night Time (5%), Escalation (5%)
@@ -173,7 +237,9 @@ async def analyze_incident_audio(
         "riskScore": int(risk_rating),
         "risk_score": int(risk_rating),
         "threatLevel": str(threat_level),
-        "threat_level": str(threat_level)
+        "threat_level": str(threat_level),
+        "acoustic_measured": bool(tone_measured),
+        "tone_confidence": float(tone_conf) if (tone_measured and tone_conf is not None) else None
     }
 
 if __name__ == "__main__":

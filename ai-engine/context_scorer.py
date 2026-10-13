@@ -44,8 +44,8 @@ class ContextScorer:
             threat_level = "WARNING" if audio_distress else "SAFE"
         threat_level = threat_level.upper().strip()
         
-        if distress_confidence is None:
-            distress_confidence = 75.0 if audio_distress else 10.0
+        # Missing input is treated as missing (not as zero and not as a guess)
+        has_conf = distress_confidence is not None
             
         # 2. Check Night Time (5%)
         hour = None
@@ -97,10 +97,6 @@ class ContextScorer:
             print("[CONTEXT SCORER] Multiple monitoring alerts detected (+escalation)")
 
         # 4. Compute Weighted Score contributions
-        # Motion (10%) dropped and redistributed: Distress Conf (50% -> 55%), Threat Base (20% -> 25%)
-        # This fixes the permanently depressed risk scores caused by an empty motion parameter.
-        conf_contrib = distress_confidence * 0.55
-        
         threat_base = self.threat_mapping.get(threat_level, 0.0)
         threat_contrib = threat_base * 0.25
         
@@ -108,13 +104,20 @@ class ContextScorer:
         night_contrib = 5.0 if is_night else 0.0
         escalation_contrib = 5.0 if has_escalation else 0.0
 
-        raw_weighted_score = (
-            conf_contrib +
-            threat_contrib +
-            isolation_contrib +
-            night_contrib +
-            escalation_contrib
-        )
+        if has_conf:
+            conf_contrib = distress_confidence * 0.55
+            raw_weighted_score = (
+                conf_contrib +
+                threat_contrib +
+                isolation_contrib +
+                night_contrib +
+                escalation_contrib
+            )
+        else:
+            conf_contrib = 0.0
+            # When confidence is missing, normalize across available context components (sum of weights = 0.45)
+            context_sum = threat_contrib + isolation_contrib + night_contrib + escalation_contrib
+            raw_weighted_score = (context_sum / 0.45) if context_sum > 0 else 0.0
         
         print(f"[CONTEXT SCORER] Raw components - Conf: {conf_contrib:.2f}, Threat: {threat_contrib:.2f}, "
               f"Iso: {isolation_contrib:.2f}, Night: {night_contrib:.2f}, Esc: {escalation_contrib:.2f}")

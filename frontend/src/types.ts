@@ -13,6 +13,7 @@ export type Screen =
   | 'MONITORING'
   | 'SAFE_RIDE'
   | 'SOS_ACTIVE'
+  | 'SOS_FAILED'
   | 'INCIDENT_DETAILS'
   | 'HISTORY'
   | 'PROFILE'

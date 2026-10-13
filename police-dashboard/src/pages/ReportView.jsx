@@ -16,9 +16,7 @@ import {
   Radio, 
   Lock 
 } from 'lucide-react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-import { policeConfig } from '../api.js';
+import { policeConfig, API_BASE } from '../api.js';
 
 export default function ReportView() {
   const { id } = useParams();

@@ -2,6 +2,8 @@ import os
 from transcript_analyzer import TranscriptAnalyzer
 from threading import Lock
 
+from audio_metrics import audio_metrics
+
 try:
     from faster_whisper import WhisperModel
 except (ImportError, OSError):
@@ -55,49 +57,106 @@ class WhisperDetector:
         """
         transcript = ''
 
+        if not self.model:
+            return {
+                "available": False,
+                "status": "model_unavailable",
+                "transcript": "",
+                "distress_flagged": False,
+                "confidence": 0.0,
+                "threatLevel": "SAFE",
+                "risk_score": 0
+            }
+
+        if not os.path.exists(file_path):
+            audio_metrics.record_failure("file_not_found")
+            return {
+                "available": True,
+                "status": "could_not_be_read",
+                "error": "Audio file does not exist on disk.",
+                "transcript": "",
+                "distress_flagged": False,
+                "confidence": 0.0,
+                "threatLevel": "SAFE",
+                "risk_score": 0
+            }
+
         # 1. Attempt real transcription
-        if self.model and os.path.exists(file_path):
-            try:
-                lang_hint = language if language else None
-                print(f"[WHISPER DETECTOR] Transcribing: {file_path} | language hint: {lang_hint or 'auto'}")
-                with self._transcription_lock:
+        try:
+            lang_hint = language if language else None
+            print(f"[WHISPER DETECTOR] Transcribing: {file_path} | language hint: {lang_hint or 'auto'}")
+            with self._transcription_lock:
+                segments, info = self.model.transcribe(
+                    file_path,
+                    beam_size=1,
+                    language=lang_hint,
+                    vad_filter=True,
+                    condition_on_previous_text=False
+                )
+                segments = list(segments)
+                # If VAD filter yielded 0 segments, retry without VAD filter to catch quiet or short cries
+                if not segments:
                     segments, info = self.model.transcribe(
                         file_path,
                         beam_size=1,
                         language=lang_hint,
-                        vad_filter=True,
+                        vad_filter=False,
                         condition_on_previous_text=False
                     )
                     segments = list(segments)
-                print(
-                    f"[WHISPER DETECTOR] Detected language: {info.language} "
-                    f"(confidence={info.language_probability:.2f})"
-                )
-                
-                transcript_parts = []
-                for segment in segments:
-                    transcript_parts.append(segment.text)
-                
-                # Join segment text and clean whitespace
-                raw_transcript = " ".join(transcript_parts).strip()
-                
-                if raw_transcript:
-                    transcript = raw_transcript
-                    print(f"[WHISPER DETECTOR] Real transcript parsed successfully: {ascii(transcript)}")
-            except Exception as e:
-                print(f"[WHISPER DETECTOR] Real transcription failed (possibly invalid audio format): {e}")
-                return {"available": False, "transcript": "", "distress_flagged": False, "confidence": 0.0, "threatLevel": "UNAVAILABLE"}
-        elif not self.model or not os.path.exists(file_path):
-            return {"available": False, "transcript": "", "distress_flagged": False, "confidence": 0.0, "threatLevel": "UNAVAILABLE"}
+            print(
+                f"[WHISPER DETECTOR] Detected language: {info.language} "
+                f"(confidence={info.language_probability:.2f})"
+            )
+            
+            transcript_parts = []
+            for segment in segments:
+                transcript_parts.append(segment.text)
+            
+            # Join segment text and clean whitespace
+            raw_transcript = " ".join(transcript_parts).strip()
+            
+            if raw_transcript:
+                transcript = raw_transcript
+                print(f"[WHISPER DETECTOR] Real transcript parsed successfully: {ascii(transcript)}")
+            else:
+                print("[WHISPER DETECTOR] No speech detected in audio (silence or non-speech background).")
+
+            audio_metrics.record_success()
+        except Exception as e:
+            print(f"[WHISPER DETECTOR] Real transcription failed (possibly invalid audio format): {e}")
+            audio_metrics.record_failure(f"transcription_decode_error: {e}")
+            return {
+                "available": True,
+                "status": "could_not_be_read",
+                "error": f"Audio could not be read: {e}",
+                "transcript": "",
+                "distress_flagged": False,
+                "confidence": 0.0,
+                "threatLevel": "SAFE",
+                "risk_score": 0
+            }
             
         # Perform transcript intelligence analysis using only recognized audio.
-        analysis = self.analyzer.analyze(transcript)
-        print(f"[WHISPER DETECTOR] Transcript Intelligence -> Distress: {analysis['distress']} | Confidence: {analysis['confidence']}% | Threat Level: {analysis['threatLevel']}")
-        
-        return {
-            "available": True,
-            "transcript": transcript,
-            "distress_flagged": analysis["distress"],
-            "confidence": analysis["confidence"],
-            "threatLevel": analysis["threatLevel"]
-        }
+        if transcript:
+            analysis = self.analyzer.analyze(transcript)
+            print(f"[WHISPER DETECTOR] Transcript Intelligence -> Distress: {analysis['distress']} | Confidence: {analysis['confidence']}% | Threat Level: {analysis['threatLevel']}")
+            return {
+                "available": True,
+                "status": "OK",
+                "transcript": transcript,
+                "distress_flagged": analysis["distress"],
+                "confidence": analysis["confidence"],
+                "threatLevel": analysis["threatLevel"]
+            }
+        else:
+            # Silent room / no speech detected: honest safe result with 0 risk score
+            return {
+                "available": True,
+                "status": "OK",
+                "transcript": "",
+                "distress_flagged": False,
+                "confidence": 0.0,
+                "threatLevel": "SAFE",
+                "risk_score": 0
+            }

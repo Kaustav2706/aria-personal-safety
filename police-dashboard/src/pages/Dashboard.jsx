@@ -21,9 +21,7 @@ import {
   Trash2
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-import { policeConfig, getToken } from '../api.js';
+import { policeConfig, API_BASE, createPoliceSocket } from '../api.js';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -34,19 +32,22 @@ export default function Dashboard() {
   useEffect(() => {
     fetchIncidents();
 
-    const socket = io(SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: 15,
-      reconnectionDelay: 1500,
-      // Send JWT in handshake — server rejects the connection if missing/invalid
-      auth: { token: getToken() }
-    });
+    const socket = createPoliceSocket();
 
-    socket.on('connect', () => {
-      // Register as dispatcher to join the scoped broadcast room
+    const registerDispatcher = () => {
       socket.emit('registerDispatcher', {}, (res) => {
         if (!res?.success) console.warn('[SOCKET.IO] Dispatcher registration failed:', res?.message);
       });
+    };
+
+    socket.on('connect', () => {
+      registerDispatcher();
+      fetchIncidents();
+    });
+
+    socket.on('reconnect', () => {
+      registerDispatcher();
+      fetchIncidents();
     });
 
     socket.on('incidentCreated', (newIncident) => {
