@@ -1,20 +1,50 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Phone, CheckCircle, ShieldAlert, X, Mic, MicOff } from 'lucide-react';
+import { Phone, CheckCircle, ShieldAlert, X, Mic, MicOff, Loader2 } from 'lucide-react';
+import { alertService } from '../services/api';
 
 interface ActiveSOSProps {
   onCancelSOS: () => void;
   primaryContactName: string;
+  primaryContactPhone?: string;
   incidentId: string | null;
   riskScore: number;
   transcript: string;
 }
 
-export default function ActiveSOSView({ onCancelSOS, primaryContactName, incidentId, riskScore, transcript }: ActiveSOSProps) {
+export default function ActiveSOSView({ onCancelSOS, primaryContactName, primaryContactPhone, incidentId, riskScore, transcript }: ActiveSOSProps) {
   const [timelineIndex, setTimelineIndex] = useState(1);
   const [waveHeights, setWaveHeights] = useState([12, 32, 48, 24, 40, 16, 36, 44, 20]);
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const [micError, setMicError] = useState(false);
+  const [callingContact, setCallingContact] = useState(false);
+  const [callMessage, setCallMessage] = useState<string | null>(null);
+
+  const handleCallEmergencyContact = async () => {
+    setCallingContact(true);
+    setCallMessage('Connecting call...');
+
+    // Dispatch automated Twilio Priority Voice Call via backend
+    try {
+      const res = await alertService.callContact({
+        incidentId,
+        contactPhone: primaryContactPhone
+      });
+      if (res.data?.success) {
+        setCallMessage('Emergency Call Placed!');
+      } else {
+        setCallMessage(res.data?.message || 'Call initiated');
+      }
+    } catch (err: any) {
+      console.warn('[ActiveSOS] Twilio voice call error:', err);
+      setCallMessage('Call dispatch error');
+    } finally {
+      setTimeout(() => {
+        setCallingContact(false);
+        setCallMessage(null);
+      }, 4000);
+    }
+  };
 
   // Audio analysis refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -420,11 +450,16 @@ export default function ActiveSOSView({ onCancelSOS, primaryContactName, inciden
       <footer className="fixed bottom-0 left-0 right-0 max-w-sm mx-auto p-6 pb-8 bg-gradient-to-t from-background via-background/90 to-transparent z-40">
         <div className="flex flex-col gap-3">
           <button 
-            onClick={() => alert(`Connecting Priority Call line with ${primaryContactName}...`)}
+            onClick={handleCallEmergencyContact}
+            disabled={callingContact}
             className="w-full h-14 bg-secondary text-on-secondary rounded-xl font-bold text-title-md flex items-center justify-center gap-2 active:scale-95 transition-transform cursor-pointer"
           >
-            <Phone className="w-5 h-5 fill-on-secondary text-secondary" />
-            Call Emergency Contact
+            {callingContact ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Phone className="w-5 h-5 fill-on-secondary text-secondary" />
+            )}
+            {callMessage || 'Call Emergency Contact'}
           </button>
           
           <button 

@@ -132,6 +132,7 @@ export async function initializeDatabase() {
       );
 
       ALTER TABLE incidents ADD COLUMN IF NOT EXISTS audio_url TEXT;
+      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS notification_logs JSONB;
 
       CREATE TABLE IF NOT EXISTS location_history (
         id SERIAL PRIMARY KEY,

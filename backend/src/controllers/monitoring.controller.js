@@ -6,7 +6,7 @@ import { AudioEvidenceService } from '../services/audioEvidenceService.js';
 import { StorageService } from '../services/storageService.js';
 import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { get as redisGet, set as redisSet } from '../config/redis.js';
+import { get as redisGet, set as redisSet, del as redisDel } from '../config/redis.js';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -30,7 +30,14 @@ async function findCooldownIncident(userId) {
     const cached = await redisGet(redisKey);
     if (cached) {
       const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
-      return parsed;
+      // Ensure the cached incident is genuinely still active in the database!
+      const dbInc = await Incident.findById(parsed.id);
+      if (dbInc && dbInc.status === 'active') {
+        return parsed;
+      } else {
+        // Stale cooldown from resolved or cancelled incident — clear it
+        try { await redisDel(redisKey); } catch {}
+      }
     }
   } catch (err) {
     console.warn('[MONITORING] Redis cooldown cache lookup failed, falling back to database:', err.message);
@@ -77,7 +84,7 @@ async function findCooldownIncident(userId) {
 // ═══════════════════════════════════════════════════════════════════════════
 export const analyzeChunk = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { latitude, longitude, isIsolated, motionAnomaly, motion_anomaly, timestamp, sessionId } = req.body;
+  const { latitude, longitude, isIsolated, motionAnomaly, motion_anomaly, timestamp, sessionId, language } = req.body;
   const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
 
   console.log(`[MONITORING] Chunk received from user ${userId} at ${timestamp || new Date().toISOString()}`);
@@ -103,8 +110,6 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
   // 3. Reuse existing AIService — DO NOT create a second AI implementation
   console.log(`[MONITORING] Dispatching audio to AIService.analyzeAudioIncident(): ${req.file.originalname}`);
 
-  // Let Whisper identify the spoken language; profile locale may differ from audio.
-
   const analysis = await AIService.analyzeAudioIncident({
     fileBuffer: req.file.buffer,
     fileName: req.file.originalname,
@@ -112,8 +117,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     longitude: parseFloat(longitude) || 0.0,
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
-    language: null,
-    timeoutMs: 4000
+    language: language || 'en',
+    timeoutMs: 30000
   });
 
   const { distress, confidence, transcript, riskScore } = analysis;
@@ -198,10 +203,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
           console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%)`);
 
-          // Notify Emergency Contacts and Police Dispatch via tiered thresholds
-          await dispatchTieredAlerts({ user, incident });
-
-          // Emit live update through Socket.IO (reuse existing io instance)
+          // Emit live update through Socket.IO immediately so frontend & police HUD update in milliseconds
           const io = req.app.get('io');
           if (io) {
             io.emit('incidentCreated', {
@@ -218,6 +220,11 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           };
 
           console.log(`[MONITORING] Auto Incident Triggered: YES | Session: ${sessionId || 'N/A'} | User: ${userId} | Risk: ${riskScore} | Distress: ${distress}`);
+
+          // Notify Emergency Contacts and Police Dispatch asynchronously in background without blocking HTTP response
+          dispatchTieredAlerts({ user, incident }).catch(alertErr => {
+            console.error('[MONITORING] Error in tiered alerts dispatch:', alertErr.message);
+          });
         }
       } catch (incidentErr) {
         console.error(`[MONITORING] Auto-incident creation failed for user ${userId}:`, incidentErr.message);

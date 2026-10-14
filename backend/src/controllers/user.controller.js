@@ -1,4 +1,5 @@
 import { User } from '../models/User.model.js';
+import { normalizePhoneNumber } from '../utils/phoneUtils.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const getProfile = asyncHandler(async (req, res) => {
@@ -35,8 +36,13 @@ export const updateProfile = asyncHandler(async (req, res) => {
 
   const updates = {};
   if (name) updates.name = name;
-  if (phone) updates.phone = phone;
-  if (emergencyContacts) updates.emergencyContacts = emergencyContacts;
+  if (phone) updates.phone = normalizePhoneNumber(phone);
+  if (emergencyContacts && Array.isArray(emergencyContacts)) {
+    updates.emergencyContacts = emergencyContacts.map(c => ({
+      name: c.name,
+      phone: normalizePhoneNumber(c.phone)
+    }));
+  }
 
   const updatedUser = await User.update(userId, updates);
   const { passwordHash: _, ...userWithoutPassword } = updatedUser;

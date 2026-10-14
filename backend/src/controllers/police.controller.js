@@ -109,6 +109,12 @@ export const resolvePoliceIncident = asyncHandler(async (req, res) => {
 
   const updated = await Incident.update(id, { status: 'resolved' });
 
+  // Clear cooldown in Redis for the victim so subsequent alarms can trigger
+  try {
+    const { del: redisDel } = await import('../config/redis.js');
+    await redisDel(`incident:cooldown:${incident.userId}`);
+  } catch {}
+
   // ── Audit Entry: Officer resolved/closed this incident ─────────────────────
   await AuditLog.record({
     userId: req.userId,

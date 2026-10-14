@@ -8,7 +8,7 @@ const getAIEngineUrl = () => {
 };
 
 const AI_ENGINE_URL = getAIEngineUrl();
-const DEFAULT_AI_TIMEOUT_MS = 4000; // Shorter than the 5-second chunk interval to prevent connection pileups
+const DEFAULT_AI_TIMEOUT_MS = 30000; // Allows Whisper inference on CPU to complete safely without premature timeouts
 
 // ── Burst-absorbing Request Queue ───────────────────────────────────────────
 // Queues concurrent requests between backend and AI service to absorb bursts

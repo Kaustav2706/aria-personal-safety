@@ -637,8 +637,13 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                     zoomControl={false}
                   >
                     <TileLayer
-                      url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      url="https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+                      attribution='Tiles &copy; Esri'
+                      maxZoom={19}
+                    />
+                    <TileLayer
+                      url="https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+                      maxZoom={19}
                     />
                     <Marker position={[gpsCoords.lat, gpsCoords.lng]} icon={userIcon} />
                     {destination && (

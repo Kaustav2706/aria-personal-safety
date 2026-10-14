@@ -56,7 +56,7 @@ export class Incident {
         parseInt(riskScore) || 0,
         audioTranscript,
         audioUrl,
-        notificationLogs
+        notificationLogs ? (typeof notificationLogs === 'string' ? notificationLogs : JSON.stringify(notificationLogs)) : null
       ]);
       const incident = res.rows[0];
 
@@ -213,7 +213,7 @@ static async findByUserId(userId) {
       }
       if (updates.notificationLogs !== undefined) {
         fields.push(`notification_logs = $${valIdx++}`);
-        values.push(updates.notificationLogs);
+        values.push(updates.notificationLogs ? (typeof updates.notificationLogs === 'string' ? updates.notificationLogs : JSON.stringify(updates.notificationLogs)) : null);
       }
 
       if (fields.length === 0) {

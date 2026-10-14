@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EmergencyContact } from '../types';
-import { UserPlus, Trash2, Phone, Shield, AlertCircle } from 'lucide-react';
+import { UserPlus, Trash2, Phone, Shield, AlertCircle, Loader2 } from 'lucide-react';
+import { alertService } from '../services/api';
 
 interface ContactsViewProps {
   contacts: EmergencyContact[];
@@ -15,6 +16,8 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
   const [newPhone, setNewPhone] = useState('');
   const [error, setError] = useState('');
 
+  const [callingId, setCallingId] = useState<string | null>(null);
+
   const handleAdd = () => {
     setError('');
     if (!newName.trim() || !newPhone.trim()) {
@@ -22,9 +25,21 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
       return;
     }
 
+    let formattedPhone = newPhone.trim().replace(/[\s\-\(\)]/g, '');
+    if (formattedPhone.startsWith('0') && formattedPhone.length === 11) {
+      formattedPhone = formattedPhone.substring(1);
+    }
+    if (formattedPhone.length === 10 && !formattedPhone.startsWith('+')) {
+      formattedPhone = `+91${formattedPhone}`;
+    } else if (formattedPhone.startsWith('91') && formattedPhone.length === 12) {
+      formattedPhone = `+${formattedPhone}`;
+    } else if (!formattedPhone.startsWith('+')) {
+      formattedPhone = `+91${formattedPhone}`;
+    }
+
     onAddContact({
       name: newName.trim(),
-      phone: newPhone.trim(),
+      phone: formattedPhone,
       priority: 'High',
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(newName.trim())}&background=2c1b1a&color=fadcd8&size=200`,
     });
@@ -32,6 +47,19 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
     setNewName('');
     setNewPhone('');
     setShowAddForm(false);
+  };
+
+  const handleCallContact = async (contact: EmergencyContact) => {
+    setCallingId(contact.id);
+
+    // Dispatch automated priority voice call via backend Twilio
+    try {
+      await alertService.callContact({ contactPhone: contact.phone });
+    } catch (err) {
+      console.warn('[CONTACTS] Twilio call failed:', err);
+    } finally {
+      setTimeout(() => setCallingId(null), 3000);
+    }
   };
 
   const handleDelete = (id: string, name: string) => {
@@ -138,11 +166,16 @@ export default function ContactsView({ contacts, onAddContact, onDeleteContact, 
 
             <div className="flex items-center gap-2 shrink-0">
               <button
-                onClick={() => alert(`Calling ${contact.name}...`)}
+                onClick={() => handleCallContact(contact)}
+                disabled={callingId === contact.id}
                 className="w-9 h-9 rounded-full bg-secondary/10 flex items-center justify-center text-secondary hover:bg-secondary/20 active:scale-90 border border-secondary/20 hover:shadow-[0_0_10px_rgba(162,201,255,0.2)] transition-all cursor-pointer"
                 title={`Call ${contact.name}`}
               >
-                <Phone className="w-3.5 h-3.5" />
+                {callingId === contact.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Phone className="w-3.5 h-3.5" />
+                )}
               </button>
               <button
                 onClick={() => handleDelete(contact.id, contact.name)}

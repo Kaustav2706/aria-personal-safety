@@ -370,6 +370,7 @@ export default function MonitoringView({
       formData.append('isIsolated', 'false');
       formData.append('motion_anomaly', 'false');
       formData.append('sessionId', sid);
+      formData.append('language', 'en');
 
       const res = await monitoringService.uploadChunk(formData);
       const data = res.data as ChunkAnalysis;
@@ -405,13 +406,40 @@ export default function MonitoringView({
         // If auto-incident was created
         if (data.autoIncident) {
           console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
-          await handleStop();
+
+          // Synchronously release audio/mic tracks immediately
+          isMonitoringActiveRef.current = false;
+          if (chunkTimerRef.current) {
+            clearTimeout(chunkTimerRef.current);
+            chunkTimerRef.current = null;
+          }
+          if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+          if (mediaRecorderRef.current?.state === 'recording') {
+            try { mediaRecorderRef.current.stop(); } catch {}
+          }
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+          }
+          if (audioContextRef.current) {
+            try { audioContextRef.current.close(); } catch {}
+            audioContextRef.current = null;
+          }
+
+          setIsActive(false);
+          onMonitoringChange(false);
+
+          // Stop backend session in background (do NOT block screen transition)
+          if (sid) {
+            monitoringService.stopSession(sid).catch(() => {});
+          }
+
+          // Trigger SOS screen transition immediately
           onIncidentCreated({
             id: data.autoIncident.incidentId,
             userId: '',
             status: 'active',
             triggerType: data.autoIncident.triggerType || 'monitoring',
-            // Only populate coordinates if we have a real GPS fix.
             latitude: currentFix?.lat ?? null,
             longitude: currentFix?.lng ?? null,
             riskScore: data.autoIncident.riskScore,
@@ -773,35 +801,38 @@ export default function MonitoringView({
               <line x1="0" y1="80" x2="400" y2="80" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
               <line x1="0" y1="40" x2="400" y2="40" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
               
-              {/* Area fill */}
-              <path 
-                d={`${getCurvePath(riskHistory)} L 400,100 L 0,100 Z`}
-                fill="url(#chartGradMonitor)" 
-              />
-              {/* Line */}
-              <path 
-                d={getCurvePath(riskHistory)}
-                fill="none" 
-                stroke={distressDetected ? '#ff544c' : '#72d4ef'}
-                strokeWidth="2.5" 
-                strokeLinecap="round"
-              />
-              
-              {/* Highlight score dot at the latest point on the right */}
-              <circle 
-                cx="400" 
-                cy={80 - (riskHistory[riskHistory.length - 1] / 100) * 70} 
-                r="4.5" 
-                fill={distressDetected ? '#ff544c' : '#72d4ef'} 
-              />
-              {isActive && (
-                <circle 
-                  cx="400" 
-                  cy={80 - (riskHistory[riskHistory.length - 1] / 100) * 70} 
-                  r="9" 
-                  fill={distressDetected ? '#ff544c' : '#72d4ef'} 
-                  className="animate-ping opacity-30" 
-                />
+              {/* Area fill and Line */}
+              {riskHistory.length > 0 && (
+                <>
+                  <path 
+                    d={`${getCurvePath(riskHistory)} L 400,100 L 0,100 Z`}
+                    fill="url(#chartGradMonitor)" 
+                  />
+                  <path 
+                    d={getCurvePath(riskHistory)}
+                    fill="none" 
+                    stroke={distressDetected ? '#ff544c' : '#72d4ef'}
+                    strokeWidth="2.5" 
+                    strokeLinecap="round"
+                  />
+                  
+                  {/* Highlight score dot at the latest point on the right */}
+                  <circle 
+                    cx="400" 
+                    cy={80 - ((riskHistory[riskHistory.length - 1] ?? 0) / 100) * 70} 
+                    r="4.5" 
+                    fill={distressDetected ? '#ff544c' : '#72d4ef'} 
+                  />
+                  {isActive && (
+                    <circle 
+                      cx="400" 
+                      cy={80 - ((riskHistory[riskHistory.length - 1] ?? 0) / 100) * 70} 
+                      r="9" 
+                      fill={distressDetected ? '#ff544c' : '#72d4ef'} 
+                      className="animate-ping opacity-30" 
+                    />
+                  )}
+                </>
               )}
             </svg>
           </div>

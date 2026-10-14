@@ -1,6 +1,8 @@
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { dispatchTieredAlerts } from '../config/alertConfig.js';
+import { TwilioVoiceService } from '../services/twilioVoiceService.js';
+import { normalizePhoneNumber } from '../utils/phoneUtils.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const triggerSOS = asyncHandler(async (req, res) => {
@@ -177,4 +179,74 @@ export const updateLocation = asyncHandler(async (req, res) => {
     incident: updated
   });
 });
-export default { triggerSOS, updateLocation };
+
+export const callEmergencyContact = asyncHandler(async (req, res) => {
+  const userId = req.userId;
+  const { incidentId, contactPhone } = req.body;
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User profile not found' });
+  }
+
+  let incident = null;
+  if (incidentId) {
+    try {
+      incident = await Incident.findById(incidentId);
+    } catch {}
+  }
+  if (!incident) {
+    incident = { id: incidentId || 'priority-call', riskScore: 90, triggerType: 'manual_call' };
+  }
+
+  // Compile list of unique emergency contacts to dial
+  const phoneSet = new Set();
+  const contactsToDial = [];
+
+  if (contactPhone) {
+    const norm = normalizePhoneNumber(contactPhone);
+    if (norm) {
+      phoneSet.add(norm);
+      contactsToDial.push({ name: 'Emergency Contact', phone: norm });
+    }
+  }
+
+  if (Array.isArray(user.emergencyContacts) && user.emergencyContacts.length > 0) {
+    for (const c of user.emergencyContacts) {
+      const norm = normalizePhoneNumber(c.phone);
+      if (norm && !phoneSet.has(norm)) {
+        phoneSet.add(norm);
+        contactsToDial.push({ name: c.name || 'Emergency Contact', phone: norm });
+      }
+    }
+  }
+
+  if (contactsToDial.length === 0) {
+    return res.status(400).json({ success: false, message: 'No emergency contact phone number available' });
+  }
+
+  console.log(`[ALERT CONTROLLER] Placing priority voice call(s) to ${contactsToDial.length} contact(s) for user ${user.name}`);
+  const callResults = [];
+  for (const contact of contactsToDial) {
+    const result = await TwilioVoiceService.makeEmergencyCall(contact.phone, user, incident);
+    callResults.push({
+      name: contact.name,
+      phone: contact.phone,
+      ...result
+    });
+  }
+
+  const anySuccess = callResults.some(r => r.success);
+  return res.status(200).json({
+    success: anySuccess,
+    message: anySuccess
+      ? `Priority voice call placed to ${callResults.filter(r => r.success).length} contact(s)`
+      : (callResults[0]?.error || 'Failed to initiate voice call'),
+    results: callResults,
+    sid: callResults[0]?.sid,
+    error: anySuccess ? undefined : callResults[0]?.error
+  });
+});
+
+export default { triggerSOS, updateLocation, callEmergencyContact };
+

@@ -217,6 +217,12 @@ export const resolveIncident = asyncHandler(async (req, res) => {
 
   const updated = await Incident.update(id, { status: 'resolved' });
 
+  // Clear cooldown in Redis so subsequent threats can trigger immediate alerts
+  try {
+    const { del: redisDel } = await import('../config/redis.js');
+    await redisDel(`incident:cooldown:${userId}`);
+  } catch {}
+
   // Broadcast socket resolution update
   const io = req.app.get('io');
   if (io) {

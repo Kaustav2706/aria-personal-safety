@@ -130,6 +130,7 @@ export default function App() {
       if (profileRes.data.success && profileRes.data.user) {
         const u = profileRes.data.user;
         const base = {
+          id: u.id,
           name: u.name || 'User',
           email: u.email || '',
           avatar: defaultProfile.avatar,
@@ -247,8 +248,11 @@ export default function App() {
         ...prev,
       ]);
 
-      // If an active incident was created while in monitoring or dashboard, redirect to SOS_ACTIVE
-      if (data.status === 'active' && (data.triggerType === 'monitoring' || data.triggerType === 'audio')) {
+      // If an active incident was created for this user while in monitoring or dashboard, redirect to SOS_ACTIVE
+      const currentUserId = profile.id || getUser()?.id;
+      const isMyIncident = !data.userId || !currentUserId || data.userId === currentUserId;
+      if (isMyIncident && data.status === 'active') {
+        console.log('[APP] Redirecting to SOS_ACTIVE screen for incident:', data.id);
         setSosIncidentId(data.id);
         setSosRiskScore(data.riskScore || 85);
         setSosTranscript(data.audioTranscript || '');
@@ -826,6 +830,7 @@ export default function App() {
           <ActiveSOSView 
             onCancelSOS={handleCancelSOS}
             primaryContactName={contacts[0]?.name || 'Emergency Contact'}
+            primaryContactPhone={contacts[0]?.phone}
             incidentId={sosIncidentId}
             riskScore={sosRiskScore}
             transcript={sosTranscript}

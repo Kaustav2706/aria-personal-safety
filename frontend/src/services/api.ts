@@ -97,7 +97,7 @@ export const monitoringService = {
   startSession: () => api.post('/api/monitoring/start'),
   uploadChunk: (formData: FormData) =>
     api.post('/api/monitoring/chunk', formData, {
-      timeout: 4500, // Shorter than 5000ms chunk interval to prevent connection pileups under load
+      timeout: 30000,
     }),
   stopSession: (sessionId: string) =>
     api.post('/api/monitoring/stop', { sessionId }),
@@ -117,6 +117,15 @@ export const incidentService = {
 export const reportService = {
   generate: (incidentId: string) =>
     api.post('/api/incidents/report/generate', { incidentId }),
+};
+
+export const alertService = {
+  callContact: (data: { incidentId?: string | null; contactPhone?: string }) =>
+    api.post('/api/alerts/call-contact', data),
+  triggerSOS: (data: any) =>
+    api.post('/api/alerts/sos', data),
+  updateLocation: (data: any) =>
+    api.post('/api/location/update', data),
 };
 
 export const healthService = {

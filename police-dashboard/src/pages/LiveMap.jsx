@@ -18,6 +18,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { policeConfig, API_BASE, createPoliceSocket } from '../api.js';
+import { reverseGeocode } from '../services/geocode.js';
 
 export default function LiveMap() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export default function LiveMap() {
   const markersGroupRef = useRef({});
   const [incidents, setIncidents] = useState([]);
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [selectedAddress, setSelectedAddress] = useState('');
 
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
@@ -36,16 +38,106 @@ export default function LiveMap() {
     hasFocusedTarget.current = false;
   }, [targetIncidentId]);
 
+  // Resolve human-readable address when an incident is selected
+  useEffect(() => {
+    if (selectedIncident && selectedIncident.latitude && selectedIncident.longitude) {
+      setSelectedAddress('Resolving location...');
+      reverseGeocode(selectedIncident.latitude, selectedIncident.longitude).then(addr => {
+        setSelectedAddress(addr);
+      });
+    } else {
+      setSelectedAddress('');
+    }
+  }, [selectedIncident?.id, selectedIncident?.latitude, selectedIncident?.longitude]);
+
   // Initialize Leaflet Map
   useEffect(() => {
     if (!mapInstance.current && mapRef.current) {
       mapInstance.current = L.map(mapRef.current).setView([28.6139, 77.2090], 12);
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 20
-      }).addTo(mapInstance.current);
+      const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+
+      // 1. Street Map Dark (All street names, landmarks, building labels & area names in crisp high-contrast dark theme)
+      const osmDark = L.tileLayer(
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          className: 'tactical-osm-dark',
+          maxZoom: 19
+        }
+      );
+
+      // 2. Street Map Detailed (Standard Google/OSM full-color streets, buildings & landmarks)
+      const osmStandard = L.tileLayer(
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19
+        }
+      );
+
+      // 3. Satellite Recon (Esri World Imagery + Highway & Street Labels)
+      const satelliteBase = L.tileLayer(
+        'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+          attribution: 'Tiles &copy; Esri',
+          maxZoom: 19,
+          maxNativeZoom: 18
+        }
+      );
+      const satelliteLabels = L.tileLayer(
+        'https://services.arcgisonline.com/arcgis/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+        {
+          attribution: '',
+          maxZoom: 19,
+          maxNativeZoom: 18
+        }
+      );
+      const satellite = L.layerGroup([satelliteBase, satelliteLabels]);
+
+      // 4. Tactical Canvas (Minimal Dark)
+      const esriDarkBase = L.tileLayer(
+        'https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        {
+          attribution: 'Tiles &copy; Esri',
+          maxZoom: 19,
+          maxNativeZoom: 16
+        }
+      );
+      const esriDarkRef = L.tileLayer(
+        'https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+        {
+          attribution: '',
+          maxZoom: 19,
+          maxNativeZoom: 16
+        }
+      );
+      const tacticalDark = L.layerGroup([esriDarkBase, esriDarkRef]);
+
+      const baseMaps = {
+        "Street Map (Dark)": osmDark,
+        "Street Map (Detailed)": osmStandard,
+        "Satellite Recon (Roads)": satellite,
+        "Tactical Canvas": tacticalDark
+      };
+
+      if (mapboxToken) {
+        baseMaps["Mapbox Dark"] = L.tileLayer(
+          `https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${mapboxToken}`,
+          {
+            attribution: '&copy; <a href="https://www.mapbox.com/">Mapbox</a>',
+            maxZoom: 20,
+            tileSize: 512,
+            zoomOffset: -1
+          }
+        );
+      }
+
+      // Default to Street Map (Dark) so all road names, college campuses & street names are instantly visible!
+      osmDark.addTo(mapInstance.current);
+
+      // Add interactive layer selector on the HUD
+      L.control.layers(baseMaps, null, { position: 'topright' }).addTo(mapInstance.current);
     }
 
     return () => {
@@ -186,10 +278,14 @@ export default function LiveMap() {
         markersGroupRef.current[markerId].setLatLng([lat, lng]);
         markersGroupRef.current[markerId].setIcon(createMarkerIcon(inc.status, inc.riskScore));
         markersGroupRef.current[markerId].setPopupContent(popupContent);
-      } else {
         const icon = createMarkerIcon(inc.status, inc.riskScore);
         const marker = L.marker([lat, lng], { icon }).addTo(mapInstance.current);
         marker.bindPopup(popupContent, { closeButton: false });
+        marker.bindTooltip(`<b>${inc.userName || 'User'}</b> (${inc.riskScore || 0}% Risk)`, {
+          direction: 'top',
+          offset: [0, -14],
+          permanent: false
+        });
         marker.on('click', () => { setSelectedIncident(inc); });
         markersGroupRef.current[markerId] = marker;
       }
@@ -382,10 +478,18 @@ export default function LiveMap() {
               </div>
               <div>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
-                  <Crosshair size={10} style={{ color: 'var(--text-muted)' }} /> Coordinates
+                  <MapPin size={10} style={{ color: 'var(--color-cyan)' }} /> Location / Area
                 </span>
-                <span style={{ color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600 }}>
-                  LAT: {selectedIncident.latitude?.toFixed(6)}° • LNG: {selectedIncident.longitude?.toFixed(6)}°
+                <span style={{ color: '#fff', fontSize: '0.84rem', fontWeight: 700, display: 'block', lineHeight: 1.35, marginTop: '2px' }}>
+                  {selectedAddress || 'Resolving location address...'}
+                </span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                  <Crosshair size={10} style={{ color: 'var(--text-muted)' }} /> GPS Coordinates
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600 }}>
+                  {selectedIncident.latitude?.toFixed(6)}° N • {selectedIncident.longitude?.toFixed(6)}° E
                 </span>
               </div>
               {selectedIncident.audioTranscript && (

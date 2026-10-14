@@ -9,7 +9,7 @@ try:
 except (ImportError, OSError):
     WhisperModel = None
 
-WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL_NAME", "small")
+WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL_NAME", "base")
 WHISPER_MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", "/app/models/whisper-small")
 
 class WhisperDetector:
@@ -18,14 +18,16 @@ class WhisperDetector:
         print("[WHISPER DETECTOR] Initializing Whisper model...")
         try:
             if WhisperModel:
+                model_name = os.environ.get("WHISPER_MODEL_NAME", "base")
+                threads = max(2, (os.cpu_count() or 4) - 1)
                 # 1. Prefer pre-baked offline model directory (baked during Docker build)
                 if os.path.isdir(WHISPER_MODEL_DIR) and os.listdir(WHISPER_MODEL_DIR):
                     print(f"[WHISPER DETECTOR] Loading pre-baked offline Whisper model from '{WHISPER_MODEL_DIR}'...")
-                    self.model = WhisperModel(WHISPER_MODEL_DIR, device="cpu", compute_type="int8", local_files_only=True)
+                    self.model = WhisperModel(WHISPER_MODEL_DIR, device="cpu", compute_type="int8", local_files_only=True, cpu_threads=threads)
                 else:
                     # 2. Fallback to model name (for local development outside Docker)
-                    print(f"[WHISPER DETECTOR] Pre-baked model not found at '{WHISPER_MODEL_DIR}'. Loading '{WHISPER_MODEL_NAME}'...")
-                    self.model = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+                    print(f"[WHISPER DETECTOR] Pre-baked model not found at '{WHISPER_MODEL_DIR}'. Loading '{model_name}' with {threads} CPU threads...")
+                    self.model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
 
                 if self.model:
                     print("[WHISPER DETECTOR] Whisper model initialized successfully.")

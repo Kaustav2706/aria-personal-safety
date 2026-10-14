@@ -6,12 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from starlette.concurrency import run_in_threadpool
 
-# Services imports
-from whisper_detector import WhisperDetector
-from tone_classifier import ToneClassifier
-from context_scorer import ContextScorer
-from audio_metrics import audio_metrics
-
 # Load root .env and local .env for direct uvicorn starts. Values
 # already supplied by the hosting environment take precedence.
 for _env_path in [Path(__file__).parent.parent / ".env", Path(__file__).with_name(".env")]:
@@ -22,6 +16,12 @@ for _env_path in [Path(__file__).parent.parent / ".env", Path(__file__).with_nam
                 continue
             _key, _value = _line.split("=", 1)
             os.environ.setdefault(_key.strip(), _value.strip().strip("\"'"))
+
+# Services imports
+from whisper_detector import WhisperDetector
+from tone_classifier import ToneClassifier
+from context_scorer import ContextScorer
+from audio_metrics import audio_metrics
 
 # gets AI_ENGINE_SECRET
 AI_ENGINE_SECRET = os.environ.get("AI_ENGINE_SECRET", "aria-local-dev-secret-key-2024")
@@ -118,7 +118,7 @@ async def analyze_incident_audio(
             whisper.transcribe_audio,
             temp_file_path,
             original_filename=file.filename,
-            language=language if language else None
+            language=language if (language and language != 'auto') else os.environ.get("DEFAULT_AUDIO_LANGUAGE", "en")
         )
 
         # Handle unreadable audio cleanly without inventing distress phrases:

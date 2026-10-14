@@ -132,12 +132,12 @@ export default function SOSFailureView({
           {/* Secondary Contact Direct Call */}
           {primaryContactPhone && (
             <a
-              href={`tel:${primaryContactPhone}`}
+              href={`tel:${primaryContactPhone.startsWith('+') ? primaryContactPhone : (primaryContactPhone.length === 10 ? `+91${primaryContactPhone}` : primaryContactPhone)}`}
               className="w-full h-14 px-5 bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface rounded-xl font-bold text-sm flex items-center justify-between border border-white/10 transition-all cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <Phone className="w-4 h-4 text-primary" />
-                <span>Call {primaryContactName}</span>
+                <span>Call Emergency Contact</span>
               </div>
               <span className="text-xs text-primary font-mono">{primaryContactPhone}</span>
             </a>

@@ -1,5 +1,6 @@
 import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import crypto from 'crypto';
+import { normalizePhoneNumber } from '../utils/phoneUtils.js';
 
 export class User {
   static async create({ name, email, phone, passwordHash, role = 'user', emergencyContacts = [] }) {
@@ -43,12 +44,13 @@ export class User {
       const savedContacts = [];
       if (emergencyContacts && emergencyContacts.length > 0) {
         for (const contact of emergencyContacts) {
+          const normPhone = normalizePhoneNumber(contact.phone);
           const contactQuery = `
             INSERT INTO emergency_contacts (user_id, name, phone)
             VALUES ($1, $2, $3)
             RETURNING name, phone
           `;
-          const contactRes = await client.query(contactQuery, [userId, contact.name, contact.phone]);
+          const contactRes = await client.query(contactQuery, [userId, contact.name, normPhone]);
           savedContacts.push(contactRes.rows[0]);
         }
       }
@@ -200,12 +202,13 @@ export class User {
 
         const contacts = [];
         for (const contact of updates.emergencyContacts) {
+          const normPhone = normalizePhoneNumber(contact.phone);
           const insertContactQuery = `
             INSERT INTO emergency_contacts (user_id, name, phone) 
             VALUES ($1, $2, $3) 
             RETURNING name, phone
           `;
-          const res = await client.query(insertContactQuery, [id, contact.name, contact.phone]);
+          const res = await client.query(insertContactQuery, [id, contact.name, normPhone]);
           contacts.push(res.rows[0]);
         }
         user.emergencyContacts = contacts;

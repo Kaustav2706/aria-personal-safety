@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import twilio from 'twilio';
+import { normalizePhoneNumber, maskPhoneNumber } from '../utils/phoneUtils.js';
 
 dotenv.config();
 
@@ -8,17 +9,6 @@ const twilioToken = process.env.TWILIO_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
 const client = twilio(twilioSid, twilioToken);
-
-// Helper to mask phone numbers in logs: expose only last 4 digits
-function maskPhone(phone) {
-  try {
-    if (!phone) return '******';
-    const last4 = phone.slice(-4);
-    return '******' + last4;
-  } catch (e) {
-    return '******';
-  }
-}
 
 export class TwilioService {
   /**
@@ -38,7 +28,7 @@ export class TwilioService {
       const isDev = process.env.NODE_ENV !== 'production';
       const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
       if (isDev && devTestPhone) {
-        console.log(`[TwilioService] [DEV MODE ONLY] No user contacts. Using DEV_TEST_EMERGENCY_PHONE: ${maskPhone(devTestPhone)}`);
+        console.log(`[TwilioService] [DEV MODE ONLY] No user contacts. Using DEV_TEST_EMERGENCY_PHONE: ${maskPhoneNumber(devTestPhone)}`);
         recipients = [{ name: 'Dev Test Recipient', phone: devTestPhone }];
       } else {
         console.warn(`[TwilioService] No emergency contacts configured for ${user?.name || 'User'}. SOS SMS alert could not be delivered.`);
@@ -63,26 +53,37 @@ export class TwilioService {
     const results = [];
 
     for (const recipient of recipients) {
-      const phone = recipient.phone;
+      const rawPhone = recipient.phone;
+      const normalizedPhone = normalizePhoneNumber(rawPhone);
       const name = recipient.name || 'Emergency Contact';
+      const masked = maskPhoneNumber(normalizedPhone || rawPhone);
+
+      if (!normalizedPhone) {
+        console.warn(`[TwilioService] Skipping recipient ${name} due to invalid phone: ${rawPhone}`);
+        results.push({
+          phone: rawPhone || 'N/A',
+          name,
+          success: false,
+          errorMessage: 'Invalid phone number format'
+        });
+        continue;
+      }
 
       try {
-        // Log masked recipient phone (only last 4 digits)
-        console.log(`[TwilioService] Sending SMS to recipient: ${name} (${maskPhone(phone)})`);
+        console.log(`[TwilioService] Sending SMS to recipient: ${name} (${masked})`);
 
         const response = await client.messages.create({
           body: message,
           from: twilioPhoneNumber,
-          to: phone
+          to: normalizedPhone
         });
 
-        // Log masked recipient phone (only last 4 digits)
-        console.log(`[TwilioService] SMS recipient: ${name} (${maskPhone(phone)})`);
+        console.log(`[TwilioService] SMS recipient: ${name} (${masked})`);
         console.log(`[TwilioService] Twilio Message SID: ${response.sid}`);
         console.log(`[TwilioService] Delivery request status: ${response.status}`);
 
         results.push({
-          phone,
+          phone: normalizedPhone,
           name,
           success: true,
           sid: response.sid,

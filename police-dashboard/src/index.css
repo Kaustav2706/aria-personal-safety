@@ -817,4 +817,76 @@ a:hover { color: var(--color-cyan); }
   transform: scale(0.95);
 }
 
+/* ── Tactical Dark Map Styling with High Text Legibility ────────────────── */
+.tactical-osm-dark {
+  filter: invert(95%) hue-rotate(185deg) contrast(90%) brightness(95%);
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(19, 20, 26, 0.95) !important;
+  backdrop-filter: blur(12px) !important;
+  color: #fff !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.leaflet-popup-tip {
+  background: rgba(19, 20, 26, 0.95) !important;
+}
+.leaflet-tooltip {
+  background: rgba(19, 20, 26, 0.92) !important;
+  backdrop-filter: blur(8px) !important;
+  color: #fff !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  border-radius: 6px !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  padding: 4px 8px !important;
+}
+
+.leaflet-control-layers {
+  background: rgba(19, 20, 26, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-lg) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 0.78rem !important;
+  padding: 8px 12px !important;
+}
+
+.leaflet-control-layers-toggle {
+  background-color: rgba(19, 20, 26, 0.9) !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.leaflet-control-layers-base label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.leaflet-control-layers-base label:hover {
+  color: #fff;
+}
+
+.leaflet-control-zoom a {
+  background: rgba(19, 20, 26, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+  color: #fff !important;
+  border-color: var(--border-color) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: var(--bg-hover) !important;
+  color: var(--color-cyan) !important;
+}
+
+
 
