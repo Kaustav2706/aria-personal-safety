@@ -19,12 +19,26 @@ export const SOCKET_URL = (
   'http://localhost:5000'
 ).replace(/\/+$/, '');
 
+// Intercept 401/403 responses to clear stale/expired tokens and redirect to login
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      clearSession();
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 /**
  * Creates a pre-configured Socket.IO connection with automatic reconnection,
  * dual transports (websocket + polling), and dispatcher JWT handshake.
  */
 export function createPoliceSocket() {
-  return io(SOCKET_URL, {
+  const socket = io(SOCKET_URL, {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
@@ -33,10 +47,21 @@ export function createPoliceSocket() {
     transports: ['websocket', 'polling'],
     auth: { token: getToken() }
   });
+
+  socket.on('connect_error', (err) => {
+    if (err.message && (err.message.includes('Authentication') || err.message.includes('token') || err.message.includes('Unauthorized'))) {
+      clearSession();
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+  });
+
+  return socket;
 }
 
 const TOKEN_KEY = 'aria_police_token';
-const USER_KEY  = 'aria_police_user';
+const USER_KEY = 'aria_police_user';
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -94,3 +119,24 @@ export async function loginDispatcher(email, password) {
   setSession(token, user);
   return { token, user };
 }
+
+/**
+ * Register a police dispatcher account.
+ * Automatically provisions with role='police'.
+ * @returns {{ token, user }} on success
+ * @throws axios error on failure
+ */
+export async function registerDispatcher({ name, email, phone, password }) {
+  const res = await axios.post(`${API_BASE}/auth/register`, {
+    name,
+    email,
+    phone,
+    password,
+    role: 'police'
+  });
+  const { token, user } = res.data;
+
+  setSession(token, user);
+  return { token, user };
+}
+

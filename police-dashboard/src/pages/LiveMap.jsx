@@ -15,10 +15,22 @@ import {
   Radio, 
   Activity, 
   Shield,
-  Trash2
+  Trash2,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { policeConfig, API_BASE, createPoliceSocket } from '../api.js';
 import { reverseGeocode } from '../services/geocode.js';
+
+const resolveAudioUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) {
+    const serverOrigin = new URL(API_BASE, window.location.origin).origin;
+    return `${serverOrigin}${url}`;
+  }
+  return url;
+};
 
 export default function LiveMap() {
   const navigate = useNavigate();
@@ -278,6 +290,7 @@ export default function LiveMap() {
         markersGroupRef.current[markerId].setLatLng([lat, lng]);
         markersGroupRef.current[markerId].setIcon(createMarkerIcon(inc.status, inc.riskScore));
         markersGroupRef.current[markerId].setPopupContent(popupContent);
+      } else {
         const icon = createMarkerIcon(inc.status, inc.riskScore);
         const marker = L.marker([lat, lng], { icon }).addTo(mapInstance.current);
         marker.bindPopup(popupContent, { closeButton: false });
@@ -291,20 +304,24 @@ export default function LiveMap() {
       }
     });
 
+    const validActiveIncidents = incidents.filter(i => 
+      i.status === 'active' && 
+      !isNaN(parseFloat(i.latitude)) && 
+      !isNaN(parseFloat(i.longitude)) && 
+      (parseFloat(i.latitude) !== 0 || parseFloat(i.longitude) !== 0)
+    );
+
     if (targetIncidentId && !hasFocusedTarget.current) {
       const targetInc = incidents.find(i => i.id === targetIncidentId);
-      if (targetInc && mapInstance.current) {
-        mapInstance.current.setView([targetInc.latitude, targetInc.longitude], 15);
+      if (targetInc && mapInstance.current && !isNaN(parseFloat(targetInc.latitude)) && (parseFloat(targetInc.latitude) !== 0 || parseFloat(targetInc.longitude) !== 0)) {
+        mapInstance.current.setView([parseFloat(targetInc.latitude), parseFloat(targetInc.longitude)], 15);
         setSelectedIncident(targetInc);
         hasFocusedTarget.current = true;
       }
-    } else {
-      const activeIncidents = incidents.filter(i => i.status === 'active');
-      if (activeIncidents.length > 0 && mapInstance.current && !selectedIncident) {
-        const first = activeIncidents[0];
-        mapInstance.current.setView([first.latitude, first.longitude], 13);
-        setSelectedIncident(first);
-      }
+    } else if (validActiveIncidents.length > 0 && mapInstance.current && (!selectedIncident || selectedIncident.status !== 'active')) {
+      const first = validActiveIncidents[0];
+      mapInstance.current.setView([parseFloat(first.latitude), parseFloat(first.longitude)], 14);
+      setSelectedIncident(first);
     }
   }, [incidents]);
 
@@ -500,6 +517,19 @@ export default function LiveMap() {
                   <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '0.78rem', display: 'block', padding: '6px 10px', background: 'rgba(0,0,0,0.15)', borderRadius: '6px', borderLeft: '2.5px solid var(--color-cyan)' }}>
                     "{selectedIncident.audioTranscript}"
                   </span>
+                </div>
+              )}
+              {selectedIncident.audioUrl && (
+                <div style={{ marginTop: '2px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                    <Volume2 size={12} style={{ color: 'var(--color-cyan)' }} /> Acoustic Voice Evidence
+                  </span>
+                  <audio 
+                    controls 
+                    preload="metadata" 
+                    src={resolveAudioUrl(selectedIncident.audioUrl)} 
+                    style={{ width: '100%', height: '36px', borderRadius: '8px', outline: 'none' }} 
+                  />
                 </div>
               )}
             </div>

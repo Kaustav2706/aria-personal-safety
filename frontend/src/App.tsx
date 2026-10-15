@@ -42,11 +42,12 @@ import { Home, Eye, Car, History, Users, User, Bell, Shield, Settings, AlertTria
 // ── Helper: Convert BackendIncident to frontend IncidentItem ────────────────
 function backendToIncidentItem(inc: BackendIncident): IncidentItem {
   const d = new Date(inc.createdAt);
+  const validId = inc.id || (inc as any).incidentId || `inc_${Date.now()}`;
   return {
-    id: inc.id,
+    id: validId,
     date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    title: `Incident #${inc.id.slice(-6).toUpperCase()}`,
+    title: `Incident #${validId.slice(-6).toUpperCase()}`,
     riskScore: inc.riskScore,
     location: `${(inc.latitude ?? 0).toFixed(4)}°, ${(inc.longitude ?? 0).toFixed(4)}°`,
     coordinates: `${(inc.latitude ?? 0).toFixed(4)}° N, ${(inc.longitude ?? 0).toFixed(4)}° W`,
@@ -413,7 +414,12 @@ export default function App() {
   };
 
   // ── SOS trigger ─────────────────────────────────────────────────────────
-  const handleTriggerSOS = async (triggerType: string = 'manual', extraInfo?: string, coords?: { lat: number; lng: number } | null) => {
+  const handleTriggerSOS = async (
+    triggerType: string = 'manual', 
+    extraInfo?: string, 
+    coords?: { lat: number; lng: number } | null,
+    audioBlob?: Blob | null
+  ) => {
     try {
       // Get current GPS — attempt a fresh fix, but never invent coordinates.
       // If GPS is unavailable, we send location_unavailable=true so the backend
@@ -446,7 +452,9 @@ export default function App() {
       if (extraInfo) {
         formData.append('audioTranscript', extraInfo);
       }
-
+      if (audioBlob) {
+        formData.append('file', audioBlob, `voice_evidence_${Date.now()}.webm`);
+      }
 
       const res = await incidentService.create(formData);
 

@@ -296,3 +296,21 @@ button:focus-visible {
   background-size: 200% 200%;
   animation: gradient-shift 4s ease infinite;
 }
+
+/* ── Tactical Dark Map Styling with High Text Legibility (Identical to Police Dashboard) ── */
+.tactical-osm-dark {
+  filter: invert(95%) hue-rotate(185deg) contrast(90%) brightness(95%);
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(24, 10, 9, 0.95) !important;
+  backdrop-filter: blur(12px) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+.leaflet-popup-tip {
+  background: rgba(24, 10, 9, 0.95) !important;
+}
+

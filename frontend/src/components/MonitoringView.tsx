@@ -9,7 +9,7 @@ interface MonitoringViewProps {
   onMonitoringChange: (active: boolean) => void;
   onRiskScoreChange: (score: number) => void;
   onIncidentCreated: (incident: BackendIncident) => void;
-  onTriggerSOS: () => void;
+  onTriggerSOS: (triggerType?: string, extraInfo?: string, coords?: { lat: number; lng: number } | null, audioBlob?: Blob | null) => void;
 }
 
 export default function MonitoringView({ 
@@ -52,7 +52,13 @@ export default function MonitoringView({
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Continuous audio recording with overlapping window buffer
   const rollingChunksRef = useRef<{ blob: Blob; isFirst: boolean }[]>([]);
+  const evidenceChunksRef = useRef<{ blob: Blob; isFirst: boolean; timestamp: number }[]>([]);
   const webmHeaderRef = useRef<Blob | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
+  const transcriptRef = useRef<string>('');
+  const confidenceRef = useRef<number>(0);
+  const speechRecognitionRef = useRef<any>(null);
+  const consecutiveHighCountRef = useRef<number>(0);
 
   // Extracts the EBML container and tracks header from the initial WebM slice
   // (the bytes before the first Cluster element tag [0x1F, 0x43, 0xB6, 0x75])
@@ -81,6 +87,97 @@ export default function MonitoringView({
   // Seeded with a flat baseline so the chart isn't empty before monitoring starts
   const [riskHistory, setRiskHistory] = useState<number[]>([]);
   const uploadInProgressRef = useRef(false);
+  const autoSosTriggeredRef = useRef<boolean>(false);
+
+  const triggerAutoSOS = useCallback(async (source: string = 'threshold') => {
+    if (autoSosTriggeredRef.current) return;
+    autoSosTriggeredRef.current = true;
+    console.log(`[MONITORING] Monitor reached threshold (${source}) — packaging voice evidence & triggering Auto SOS...`);
+
+    // Stop live browser speech recognition if running
+    if (speechRecognitionRef.current) {
+      try { speechRecognitionRef.current.stop(); } catch {}
+    }
+
+    // Ensure recorder captures at least 2 seconds so the distress call isn't clipped
+    const elapsed = Date.now() - recordingStartTimeRef.current;
+    if (elapsed < 2000 && mediaRecorderRef.current?.state === 'recording') {
+      await new Promise((r) => setTimeout(r, Math.max(0, 2000 - elapsed)));
+    }
+
+    // Explicitly request latest data slice and wait for mediaRecorder to stop cleanly
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.requestData();
+        await new Promise<void>((resolve) => {
+          if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+            resolve();
+            return;
+          }
+          mediaRecorderRef.current.addEventListener('stop', () => resolve(), { once: true });
+          mediaRecorderRef.current.stop();
+        });
+      } catch (err) {
+        console.warn('[MONITORING] Error stopping recorder on SOS:', err);
+      }
+    }
+
+    // Cleanly stop monitoring and release microphone resources
+    isMonitoringActiveRef.current = false;
+    if (chunkTimerRef.current) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
+    }
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch {}
+      audioContextRef.current = null;
+    }
+
+    setIsActive(false);
+    onMonitoringChange(false);
+
+    // Package recorded audio slices for police evidence
+    let audioBlob: Blob | null = null;
+    try {
+      const slices = evidenceChunksRef.current.length > 0
+        ? evidenceChunksRef.current
+        : rollingChunksRef.current;
+
+      if (slices.length > 0) {
+        const containsFirst = slices.some((s) => s.isFirst);
+        if (containsFirst) {
+          audioBlob = new Blob(slices.map((s) => s.blob), { type: 'audio/webm' });
+        } else if (webmHeaderRef.current) {
+          audioBlob = new Blob([webmHeaderRef.current, ...slices.map((s) => s.blob)], { type: 'audio/webm' });
+        } else {
+          audioBlob = new Blob(slices.map((s) => s.blob), { type: 'audio/webm' });
+        }
+      }
+    } catch (e) {
+      console.warn('[MONITORING] Error packaging audio for SOS:', e);
+    }
+
+    if (sessionId) {
+      monitoringService.stopSession(sessionId).catch(() => {});
+    }
+
+    const currentTranscript = transcriptRef.current;
+    const voiceNote = currentTranscript && !currentTranscript.includes('unavailable') && currentTranscript !== 'Waiting for analysis...' && currentTranscript !== 'No speech detected.'
+      ? currentTranscript
+      : `Voice distress detected (Confidence: ${confidenceRef.current || 85}%)`;
+
+    // Trigger SOS emergency call & transition to Active SOS screen with audio evidence and 'audio' triggerType
+    onTriggerSOS('audio', voiceNote, gpsCoordsRef.current, audioBlob);
+  }, [sessionId, onTriggerSOS, onMonitoringChange]);
 
   useEffect(() => {
     let mounted = true;
@@ -164,6 +261,7 @@ export default function MonitoringView({
   // ── Start Monitoring ──────────────────────────────────────────────────────
   const handleStart = async () => {
     setError('');
+    autoSosTriggeredRef.current = false;
 
     // Safety check: refuse to arm monitoring if no emergency contacts are configured
     if (!contacts || contacts.length === 0) {
@@ -217,11 +315,23 @@ export default function MonitoringView({
           // Display live level relative to last backend response with peak-hold/slow-decay smoothing
           setConfidence((prev) => {
             const target = Math.min(lastBackendConfidenceRef.current + liveVoiceLevel, 100);
-            if (target > prev) {
-              return Math.round(prev * 0.5 + target * 0.5); // Rise relatively quickly
+            const nextVal = target > prev
+              ? Math.round(prev * 0.5 + target * 0.5) // Rise relatively quickly
+              : Math.round(prev * 0.95 + target * 0.05); // Decay slowly to prevent flickering
+
+            confidenceRef.current = nextVal;
+
+            if (nextVal >= 70 && !autoSosTriggeredRef.current && isMonitoringActiveRef.current) {
+              consecutiveHighCountRef.current += 1;
+              // Require voice distress to be sustained for ~400ms before auto-triggering
+              // so the recorder captures the full speech phrase
+              if (consecutiveHighCountRef.current >= 20) {
+                triggerAutoSOS(`Voice distress level reached ${nextVal}%`);
+              }
             } else {
-              return Math.round(prev * 0.95 + target * 0.05); // Decay slowly to prevent flickering
+              consecutiveHighCountRef.current = Math.max(0, consecutiveHighCountRef.current - 1);
             }
+            return nextVal;
           });
           
           animationFrameRef.current = requestAnimationFrame(updateVolume);
@@ -240,15 +350,23 @@ export default function MonitoringView({
       });
       mediaRecorderRef.current = mediaRecorder;
       rollingChunksRef.current = [];
+      evidenceChunksRef.current = [];
       webmHeaderRef.current = null;
+      recordingStartTimeRef.current = Date.now();
+      consecutiveHighCountRef.current = 0;
 
       mediaRecorder.ondataavailable = async (e) => {
         if (e.data.size > 0) {
+          const now = Date.now();
           const isFirst = webmHeaderRef.current === null;
           if (isFirst) {
             webmHeaderRef.current = await extractWebMHeader(e.data);
           }
           rollingChunksRef.current.push({ blob: e.data, isFirst });
+          evidenceChunksRef.current.push({ blob: e.data, isFirst, timestamp: now });
+          // Retain last 20 seconds of audio evidence
+          const cutoff = now - 20000;
+          evidenceChunksRef.current = evidenceChunksRef.current.filter((c) => c.timestamp >= cutoff || c.isFirst);
         }
       };
 
@@ -256,11 +374,40 @@ export default function MonitoringView({
       // NEVER stopped/restarted between chunks, avoiding dropped microphone frames.
       mediaRecorder.start(1000);
 
+      // Start Web Speech API in parallel for instant client-side transcription
+      try {
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRec) {
+          const rec = new SpeechRec();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = 'en-US';
+          rec.onresult = (event: any) => {
+            let combined = '';
+            for (let i = 0; i < event.results.length; ++i) {
+              combined += event.results[i][0].transcript + ' ';
+            }
+            const clean = combined.trim();
+            if (clean) {
+              transcriptRef.current = clean;
+              setTranscript(clean);
+            }
+          };
+          rec.onerror = (e: any) => {
+            console.warn('[MONITORING] Web Speech API notice:', e.error);
+          };
+          rec.start();
+          speechRecognitionRef.current = rec;
+        }
+      } catch (speechErr) {
+        console.warn('[MONITORING] Web Speech API not supported:', speechErr);
+      }
+
       // 4. Overlapping window uploader:
       // Sequential scheduling: never sends the next chunk until the previous one has come back or timed out.
       // Timeout (4500ms) is shorter than the interval (5000ms), eliminating stacked requests under load.
       isMonitoringActiveRef.current = true;
-      const CHUNK_INTERVAL_MS = 5000;
+      const CHUNK_INTERVAL_MS = 4000;
 
       const scheduleNextChunk = (delayMs: number) => {
         if (!isMonitoringActiveRef.current) return;
@@ -377,9 +524,6 @@ export default function MonitoringView({
 
       if (data.analysisAvailable === false) {
         setAiAvailable(false);
-        setTranscript(data.message || 'AI analysis unavailable. Automatic audio detection is not running.');
-        setConfidence(0);
-        setDistressDetected(false);
         setLastUploadOk(true);
         return;
       }
@@ -389,8 +533,12 @@ export default function MonitoringView({
       if (data.success) {
         lastBackendConfidenceRef.current = data.confidence;
         setConfidence(data.confidence);
+        confidenceRef.current = data.confidence;
         setRiskScore(data.riskScore);
-        setTranscript(data.transcript || 'No speech detected.');
+        if (data.transcript && data.transcript.trim()) {
+          transcriptRef.current = data.transcript.trim();
+          setTranscript(data.transcript.trim());
+        }
         setDistressDetected(data.distress);
         setChunkCount((prev) => prev + 1);
         onRiskScoreChange(data.riskScore);
@@ -403,9 +551,20 @@ export default function MonitoringView({
 
         setLastUploadOk(true);
 
+        // Automatic SOS trigger when monitor reaches 70
+        if ((data.confidence >= 70 || data.riskScore >= 70) && !autoSosTriggeredRef.current && isMonitoringActiveRef.current) {
+          triggerAutoSOS(`AI analysis: confidence ${data.confidence}%, risk score ${data.riskScore}%`);
+          return;
+        }
+
         // If auto-incident was created
         if (data.autoIncident) {
           console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
+
+          if (speechRecognitionRef.current) {
+            try { speechRecognitionRef.current.stop(); } catch {}
+            speechRecognitionRef.current = null;
+          }
 
           // Synchronously release audio/mic tracks immediately
           isMonitoringActiveRef.current = false;
@@ -436,15 +595,15 @@ export default function MonitoringView({
 
           // Trigger SOS screen transition immediately
           onIncidentCreated({
-            id: data.autoIncident.incidentId,
+            id: data.autoIncident.id || data.autoIncident.incidentId,
             userId: '',
             status: 'active',
             triggerType: data.autoIncident.triggerType || 'monitoring',
             latitude: currentFix?.lat ?? null,
             longitude: currentFix?.lng ?? null,
             riskScore: data.autoIncident.riskScore,
-            audioTranscript: data.transcript,
-            createdAt: new Date().toISOString(),
+            audioTranscript: data.autoIncident.audioTranscript || data.transcript,
+            createdAt: data.autoIncident.createdAt || new Date().toISOString(),
           });
           return;
         }
@@ -487,12 +646,18 @@ export default function MonitoringView({
     }
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
 
+    if (speechRecognitionRef.current) {
+      try { speechRecognitionRef.current.stop(); } catch {}
+      speechRecognitionRef.current = null;
+    }
+
     // Stop MediaRecorder
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
     mediaRecorderRef.current = null;
     rollingChunksRef.current = [];
+    evidenceChunksRef.current = [];
     webmHeaderRef.current = null;
 
     // Stop microphone stream
@@ -682,11 +847,12 @@ export default function MonitoringView({
                     lastBackendConfidenceRef.current = 75;
                     setConfidence(75);
                     setDistressDetected(true);
+                    triggerAutoSOS('Dev QA test button (75%)');
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-tertiary/[0.08] hover:bg-tertiary/[0.15] border border-tertiary/15 text-[9px] uppercase tracking-[0.1em] font-extrabold text-tertiary transition-colors cursor-pointer"
-                  title="Dev-only: simulate distress signal"
+                  className="px-2.5 py-1 rounded-lg bg-red-500/[0.12] hover:bg-red-500/[0.22] border border-red-500/25 text-[9px] uppercase tracking-[0.1em] font-extrabold text-red-400 transition-colors cursor-pointer"
+                  title="Dev-only: simulate distress signal >=70% to trigger Auto SOS"
                 >
-                  [DEV] Test &gt;50%
+                  [DEV] Test &gt;=70% (Auto SOS)
                 </button>
               )}
               <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
@@ -721,7 +887,7 @@ export default function MonitoringView({
           {confidence > 50 && (
             <div className="pt-3 border-t border-white/[0.06] animate-slide-up">
               <button
-                onClick={onTriggerSOS}
+                onClick={() => triggerAutoSOS(`Flag SOS Button (Confidence: ${confidence}%)`)}
                 className="w-full py-3.5 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-[0.12em] rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer relative overflow-hidden shadow-[0_0_20px_rgba(220,38,38,0.35)]"
               >
                 <div className="absolute inset-0 shimmer" />

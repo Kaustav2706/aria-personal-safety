@@ -45,7 +45,9 @@ export const createIncident = asyncHandler(async (req, res) => {
     });
 
     analysisAvailable = analysis.available;
-    finalTranscript = analysis.transcript || '';
+    const aiText = (analysis.transcript || '').trim();
+    const clientText = (req.body.audioTranscript || '').trim();
+    finalTranscript = aiText || clientText || '';
     if (analysis.available) {
       finalRiskScore = analysis.riskScore;
     } else {

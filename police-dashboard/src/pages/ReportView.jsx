@@ -96,12 +96,16 @@ export default function ReportView() {
   const storedAudioUrl = incident.audioUrl || incident.audio_url || incident.audioFile || null;
   let audioUrl = null;
   if (storedAudioUrl) {
-    try {
-      audioUrl = new URL(storedAudioUrl, new URL(API_BASE, window.location.origin).origin).toString();
-    } catch {
+    if (storedAudioUrl.startsWith('http://') || storedAudioUrl.startsWith('https://')) {
+      audioUrl = storedAudioUrl;
+    } else if (storedAudioUrl.startsWith('/')) {
+      const serverOrigin = new URL(API_BASE, window.location.origin).origin;
+      audioUrl = `${serverOrigin}${storedAudioUrl}`;
+    } else {
       audioUrl = storedAudioUrl;
     }
   }
+
 
   return (
     <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

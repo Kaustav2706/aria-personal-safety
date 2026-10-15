@@ -214,9 +214,16 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
           }
 
           autoIncident = {
+            id: incident.id,
             incidentId: incident.id,
             riskScore: incident.riskScore,
-            triggerType: incident.triggerType
+            triggerType: incident.triggerType,
+            audioTranscript: incident.audioTranscript,
+            audioUrl: incident.audioUrl,
+            status: incident.status,
+            latitude: incident.latitude,
+            longitude: incident.longitude,
+            createdAt: incident.createdAt || new Date().toISOString()
           };
 
           console.log(`[MONITORING] Auto Incident Triggered: YES | Session: ${sessionId || 'N/A'} | User: ${userId} | Risk: ${riskScore} | Distress: ${distress}`);

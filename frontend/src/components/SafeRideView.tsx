@@ -1,39 +1,302 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, Bell, Phone, Star, AlertTriangle, AlertCircle, Trash, MapPin, User, Car, Check, Navigation, Play, Compass, History } from 'lucide-react';
+import { Shield, Bell, Phone, Star, AlertTriangle, AlertCircle, Trash, MapPin, User, Car, Check, Navigation, Play, Pause, RotateCcw, Compass, History, RefreshCw, Layers } from 'lucide-react';
 import { monitoringService } from '../services/api';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 
-const userIcon = L.divIcon({
-  html: `<div style="position: relative; width: 24px; height: 24px;">
-           <div style="position: absolute; width: 24px; height: 24px; border-radius: 50%; background-color: #3b82f6; opacity: 0.3; animation: pulse-ring 1.5s infinite ease-in-out;"></div>
-           <div style="position: absolute; top: 6px; left: 6px; width: 12px; height: 12px; border-radius: 50%; background-color: #3b82f6; border: 2px solid white;"></div>
+// Google Maps Style Start Marker (A / Green Pin)
+const pickupIcon = L.divIcon({
+  html: `<div style="position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));">
+           <div style="background: #10b981; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px; border: 2.5px solid #ffffff; box-shadow: 0 0 12px rgba(16,185,129,0.9);">
+             A
+           </div>
+           <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid #10b981; margin-top: -1px;"></div>
          </div>`,
-  className: 'user-gps-marker',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12]
+  className: 'pickup-marker',
+  iconSize: [28, 35],
+  iconAnchor: [14, 35],
+  popupAnchor: [0, -35]
 });
 
+// Google Maps Style Destination Marker (B / Red Pin)
 const destinationIcon = L.divIcon({
-  html: `<div style="position: relative; width: 30px; height: 30px;">
-           <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-             <circle cx="12" cy="10" r="3"></circle>
-           </svg>
+  html: `<div style="position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));">
+           <div style="background: #ef4444; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px; border: 2.5px solid #ffffff; box-shadow: 0 0 12px rgba(239,68,68,0.9);">
+             B
+           </div>
+           <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid #ef4444; margin-top: -1px;"></div>
          </div>`,
   className: 'destination-marker',
-  iconSize: [30, 30],
-  iconAnchor: [15, 30]
+  iconSize: [28, 35],
+  iconAnchor: [14, 35],
+  popupAnchor: [0, -35]
 });
 
-function RecenterMap({ coords }: { coords: { lat: number; lng: number } }) {
+// Live Vehicle Navigation Marker with Pulsing Beacon
+const userIcon = L.divIcon({
+  html: `<div style="position: relative; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+           <div style="position: absolute; width: 32px; height: 32px; border-radius: 50%; background-color: #38bdf8; opacity: 0.4; animation: pulse-ring 1.5s infinite ease-in-out;"></div>
+           <div style="position: relative; width: 18px; height: 18px; border-radius: 50%; background-color: #0284c7; border: 2.5px solid white; box-shadow: 0 0 10px rgba(2,132,199,1); display: flex; align-items: center; justify-content: center;">
+             <div style="width: 5px; height: 5px; border-radius: 50%; background-color: white;"></div>
+           </div>
+         </div>`,
+  className: 'user-gps-marker',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16]
+});
+
+// Map Viewport Controller: fits full route or centers on vehicle
+function MapController({ 
+  waypoints, 
+  gpsCoords, 
+  mode 
+}: { 
+  waypoints: { lat: number; lng: number }[]; 
+  gpsCoords: { lat: number; lng: number } | null;
+  mode: 'fit' | 'follow';
+}) {
   const map = useMap();
+
+  // Fit bounds when route loads or user toggles 'Route' overview
   useEffect(() => {
-    if (coords) {
-      map.setView([coords.lat, coords.lng], map.getZoom());
+    if (waypoints && waypoints.length > 0 && mode === 'fit') {
+      const bounds = L.latLngBounds(waypoints.map(w => [w.lat, w.lng]));
+      map.fitBounds(bounds, { padding: [45, 45], maxZoom: 16 });
     }
-  }, [coords, map]);
+  }, [waypoints, mode, map]);
+
+  // Track and follow car when user selects 'Follow' mode
+  useEffect(() => {
+    if (mode === 'follow' && gpsCoords) {
+      map.setView([gpsCoords.lat, gpsCoords.lng], Math.max(map.getZoom(), 16));
+    }
+  }, [gpsCoords, mode, map]);
+
   return null;
+}
+
+// Pre-seeded local dictionary for zero-latency instant geocoding
+interface KnownLocation {
+  lat: number;
+  lng: number;
+  name: string;
+}
+
+const KNOWN_LOCATIONS: Record<string, KnownLocation> = {
+  // Manipal University Jaipur & immediate surroundings
+  'manipal university jaipur': { lat: 26.8429, lng: 75.5654, name: 'Manipal University Jaipur' },
+  'manipal university': { lat: 26.8429, lng: 75.5654, name: 'Manipal University Jaipur' },
+  'muj': { lat: 26.8429, lng: 75.5654, name: 'Manipal University Jaipur' },
+  'manipal': { lat: 26.8429, lng: 75.5654, name: 'Manipal University Jaipur' },
+  'dehmi kalan': { lat: 26.8351, lng: 75.5631, name: 'Dehmi Kalan, Jaipur' },
+  'dahmi kalan': { lat: 26.8351, lng: 75.5631, name: 'Dehmi Kalan, Jaipur' },
+  'dehmi': { lat: 26.8351, lng: 75.5631, name: 'Dehmi Kalan, Jaipur' },
+  'dahmi': { lat: 26.8351, lng: 75.5631, name: 'Dehmi Kalan, Jaipur' },
+  'bagru': { lat: 26.8123, lng: 75.5458, name: 'Bagru, Jaipur' },
+  'ajmer road': { lat: 26.8778, lng: 75.7291, name: 'Ajmer Road, Jaipur' },
+
+  // Jaipur City Hubs & Famous Localities
+  'bapu nagar': { lat: 26.8851, lng: 75.8010, name: 'Bapu Nagar, Jaipur' },
+  'bapunagar': { lat: 26.8851, lng: 75.8010, name: 'Bapu Nagar, Jaipur' },
+  'gandhi nagar': { lat: 26.8797, lng: 75.8038, name: 'Gandhi Nagar, Jaipur' },
+  'gandhinagar': { lat: 26.8797, lng: 75.8038, name: 'Gandhi Nagar, Jaipur' },
+  'vaishali nagar': { lat: 26.9096, lng: 75.7392, name: 'Vaishali Nagar, Jaipur' },
+  'vaishali': { lat: 26.9096, lng: 75.7392, name: 'Vaishali Nagar, Jaipur' },
+  'mansarovar': { lat: 26.8622, lng: 75.7610, name: 'Mansarovar, Jaipur' },
+  'malviya nagar': { lat: 26.8532, lng: 75.8171, name: 'Malviya Nagar, Jaipur' },
+  'raja park': { lat: 26.8973, lng: 75.8276, name: 'Raja Park, Jaipur' },
+  'c scheme': { lat: 26.9107, lng: 75.7997, name: 'C-Scheme, Jaipur' },
+  'c-scheme': { lat: 26.9107, lng: 75.7997, name: 'C-Scheme, Jaipur' },
+  'civil lines': { lat: 26.9085, lng: 75.7877, name: 'Civil Lines, Jaipur' },
+  'sindhi camp': { lat: 26.9234, lng: 75.7994, name: 'Sindhi Camp, Jaipur' },
+  'jaipur railway station': { lat: 26.9196, lng: 75.7878, name: 'Jaipur Junction Railway Station' },
+  'jaipur junction': { lat: 26.9196, lng: 75.7878, name: 'Jaipur Junction Railway Station' },
+  'railway station': { lat: 26.9196, lng: 75.7878, name: 'Jaipur Junction Railway Station' },
+  'jaipur airport': { lat: 26.8289, lng: 75.8056, name: 'Jaipur International Airport' },
+  'airport': { lat: 26.8289, lng: 75.8056, name: 'Jaipur International Airport' },
+  'sanganer airport': { lat: 26.8289, lng: 75.8056, name: 'Jaipur International Airport' },
+  'hawa mahal': { lat: 26.9239, lng: 75.8267, name: 'Hawa Mahal, Jaipur' },
+  'amer fort': { lat: 26.9855, lng: 75.8513, name: 'Amer Fort, Jaipur' },
+  'amber fort': { lat: 26.9855, lng: 75.8513, name: 'Amer Fort, Jaipur' },
+  'jagatpura': { lat: 26.8276, lng: 75.8570, name: 'Jagatpura, Jaipur' },
+  'vidhyadhar nagar': { lat: 26.9632, lng: 75.7792, name: 'Vidhyadhar Nagar, Jaipur' },
+  'vidyadhar nagar': { lat: 26.9632, lng: 75.7792, name: 'Vidhyadhar Nagar, Jaipur' },
+  'tonk road': { lat: 26.8488, lng: 75.8033, name: 'Tonk Road, Jaipur' },
+  'gopalpura': { lat: 26.8647, lng: 75.7789, name: 'Gopalpura Bypass, Jaipur' },
+
+  // Kolkata Defaults (for demo fallbacks)
+  'salt lake': { lat: 22.5867, lng: 88.4178, name: 'Salt Lake, Kolkata' },
+  'park street': { lat: 22.5516, lng: 88.3524, name: 'Park Street, Kolkata' },
+  'howrah station': { lat: 22.5839, lng: 88.3426, name: 'Howrah Railway Station' },
+  'howrah': { lat: 22.5839, lng: 88.3426, name: 'Howrah Railway Station' },
+  'new town': { lat: 22.5888, lng: 88.4735, name: 'New Town, Kolkata' },
+
+  // Delhi / Bangalore Hubs
+  'connaught place': { lat: 28.6304, lng: 77.2177, name: 'Connaught Place, New Delhi' },
+  'delhi airport': { lat: 28.5562, lng: 77.1000, name: 'Indira Gandhi International Airport' },
+  'koramangala': { lat: 12.9352, lng: 77.6245, name: 'Koramangala, Bengaluru' },
+  'indiranagar': { lat: 12.9784, lng: 77.6408, name: 'Indiranagar, Bengaluru' }
+};
+
+// Haversine distance formula (in km)
+function haversineDistance(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371; // km
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+// Fallback interpolation for offline routing
+function generateInterpolatedPath(start: { lat: number; lng: number }, end: { lat: number; lng: number }, steps = 30) {
+  const points = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    points.push({
+      lat: start.lat + (end.lat - start.lat) * t,
+      lng: start.lng + (end.lng - start.lng) * t,
+    });
+  }
+  return points;
+}
+
+// Smart geocoding with local dictionary & geographic viewbox bias
+async function geocodeLocation(
+  query: string, 
+  userCoords?: { lat: number; lng: number } | null
+): Promise<{ lat: number; lng: number; displayName: string }> {
+  const qClean = query.trim().toLowerCase();
+  
+  // 1. Direct match in local dictionary
+  for (const [key, val] of Object.entries(KNOWN_LOCATIONS)) {
+    if (qClean === key || qClean.includes(key) || key.includes(qClean)) {
+      return { lat: val.lat, lng: val.lng, displayName: val.name };
+    }
+  }
+
+  // 2. Query OpenStreetMap Nominatim API with proximity viewbox
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+    
+    // Bias search towards local city region (+/- 0.7 degrees)
+    const centerLat = userCoords?.lat || 26.8429;
+    const centerLng = userCoords?.lng || 75.5654;
+    const viewbox = `${centerLng - 0.7},${centerLat + 0.7},${centerLng + 0.7},${centerLat - 0.7}`;
+
+    // Step A: Search within regional viewbox
+    const searchUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=5&viewbox=${viewbox}&q=${encodeURIComponent(query)}`;
+    const res = await fetch(searchUrl, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        clearTimeout(timeoutId);
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+          displayName: data[0].display_name
+        };
+      }
+    }
+
+    // Step B: Search with explicit city hint
+    if (!qClean.includes('jaipur') && !qClean.includes('india')) {
+      const retryRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=3&q=${encodeURIComponent(query + ' Jaipur')}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (retryRes.ok) {
+        const retryData = await retryRes.json();
+        if (Array.isArray(retryData) && retryData.length > 0) {
+          clearTimeout(timeoutId);
+          return {
+            lat: parseFloat(retryData[0].lat),
+            lng: parseFloat(retryData[0].lon),
+            displayName: retryData[0].display_name
+          };
+        }
+      }
+    }
+
+    // Step C: Global unconstrained search
+    const globalRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    clearTimeout(timeoutId);
+    if (globalRes.ok) {
+      const globalData = await globalRes.json();
+      if (Array.isArray(globalData) && globalData.length > 0) {
+        return {
+          lat: parseFloat(globalData[0].lat),
+          lng: parseFloat(globalData[0].lon),
+          displayName: globalData[0].display_name
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[SAFE_RIDE] Nominatim geocode fallback:', err);
+  }
+
+  // 3. Fallback based on center coords + pseudo-hash offset
+  const baseLat = userCoords?.lat || 26.8429;
+  const baseLng = userCoords?.lng || 75.5654;
+  let hash = 0;
+  for (let i = 0; i < query.length; i++) {
+    hash = (hash << 5) - hash + query.charCodeAt(i);
+    hash |= 0;
+  }
+  const offsetLat = (((Math.abs(hash) % 100) / 100) - 0.5) * 0.03;
+  const offsetLng = (((Math.abs(hash >> 3) % 100) / 100) - 0.5) * 0.03;
+  
+  return {
+    lat: baseLat + offsetLat,
+    lng: baseLng + offsetLng,
+    displayName: query
+  };
+}
+
+// Real road driving route via Open Source Routing Machine (OSRM)
+async function fetchDrivingRoute(
+  start: { lat: number; lng: number },
+  end: { lat: number; lng: number }
+): Promise<{ waypoints: { lat: number; lng: number }[]; distanceKm: number; durationMins: number }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const coordinates = route.geometry.coordinates; // [[lng, lat], ...]
+        const waypoints = coordinates.map((c: [number, number]) => ({ lat: c[1], lng: c[0] }));
+        const distanceKm = Number((route.distance / 1000).toFixed(1));
+        const durationMins = Math.max(1, Math.round(route.duration / 60));
+        
+        return { waypoints, distanceKm, durationMins };
+      }
+    }
+  } catch (err) {
+    console.warn('[SAFE_RIDE] OSRM driving route failed or timed out:', err);
+  }
+
+  // Fallback: smooth interpolated path between start and end
+  const distanceKm = Number(haversineDistance(start, end).toFixed(1));
+  const durationMins = Math.max(1, Math.round(distanceKm * 2.2));
+  const waypoints = generateInterpolatedPath(start, end, 30);
+  return { waypoints, distanceKm, durationMins };
 }
 
 interface SafeRideProps {
@@ -51,6 +314,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropLocation, setDropLocation] = useState('');
   const [showSuspiciousModal, setShowSuspiciousModal] = useState(false);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -74,33 +338,30 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     localStorage.setItem('aria_prev_rides', JSON.stringify(updated));
   };
 
-  // Live simulation states
+  // Live simulation & route states
   const [showAlert, setShowAlert] = useState(false);
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [destination, setDestination] = useState<{ lat: number; lng: number } | null>(null);
   const [routeWaypoints, setRouteWaypoints] = useState<{ lat: number; lng: number }[]>([]);
   const [simulationPath, setSimulationPath] = useState<{ lat: number; lng: number }[]>([]);
+  const [totalTripDistanceKm, setTotalTripDistanceKm] = useState<number>(0);
+  const [totalTripDurationMins, setTotalTripDurationMins] = useState<number>(0);
   const [currentPathIndex, setCurrentPathIndex] = useState(0);
   const [hasReachedDestination, setHasReachedDestination] = useState(false);
   const [deviationDistance, setDeviationDistance] = useState<number>(0);
   const [isVeeringOff, setIsVeeringOff] = useState(false);
 
+  // User-Controlled Simulation & Map View Controls
+  const [isDriving, setIsDriving] = useState(false);
+  const [simSpeed, setSimSpeed] = useState<number>(1);
+  const [mapMode, setMapMode] = useState<'fit' | 'follow'>('fit');
+  const [mapLayer, setMapLayer] = useState<'dark' | 'standard' | 'satellite'>('dark');
+
   const simulationIntervalRef = useRef<number | null>(null);
 
   // Threshold in km to detect route deviation (0.25 km = 250 meters)
   const ROUTE_DEVIATION_THRESHOLD_KM = 0.25;
-
-  // Haversine distance formula
-  function haversineDistance(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-    const R = 6371; // km
-    const dLat = (b.lat - a.lat) * Math.PI / 180;
-    const dLon = (b.lng - a.lng) * Math.PI / 180;
-    const lat1 = a.lat * Math.PI / 180;
-    const lat2 = b.lat * Math.PI / 180;
-    const x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-  }
 
   // Calculates perpendicular distance from point p to segment between a and b
   function distanceToSegment(
@@ -114,7 +375,6 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
 
     if (lenSq === 0) return haversineDistance(p, a);
 
-    // Project p onto line segment ab, clamping t between 0 and 1
     const t = Math.max(0, Math.min(1, ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) / lenSq));
     const projection = {
       lat: a.lat + t * dy,
@@ -142,96 +402,64 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     return minDistance === Infinity ? 0 : minDistance;
   }
 
-  // Generate a realistic grid-like route with turns
-  function generatePath(start: { lat: number; lng: number }, end: { lat: number; lng: number }) {
-    const points = [];
-    const stepsPerLeg = 8;
-    
-    // Create two intermediate corners to simulate street navigation
-    const mid1 = { lat: start.lat, lng: start.lng + (end.lng - start.lng) * 0.4 };
-    const mid2 = { lat: start.lat + (end.lat - start.lat) * 0.7, lng: mid1.lng };
-    
-    // Leg 1: start to mid1
-    for (let i = 0; i < stepsPerLeg; i++) {
-      const t = i / stepsPerLeg;
-      points.push({
-        lat: start.lat + (mid1.lat - start.lat) * t,
-        lng: start.lng + (mid1.lng - start.lng) * t,
-      });
-    }
-    
-    // Leg 2: mid1 to mid2
-    for (let i = 0; i < stepsPerLeg; i++) {
-      const t = i / stepsPerLeg;
-      points.push({
-        lat: mid1.lat + (mid2.lat - mid1.lat) * t,
-        lng: mid1.lng + (mid2.lng - mid1.lng) * t,
-      });
-    }
-    
-    // Leg 3: mid2 to end
-    for (let i = 0; i <= stepsPerLeg; i++) {
-      const t = i / stepsPerLeg;
-      points.push({
-        lat: mid2.lat + (end.lat - mid2.lat) * t,
-        lng: mid2.lng + (end.lng - mid2.lng) * t,
-      });
-    }
-    
-    return points;
-  }
-
-  // Start the safe journey
-  const handleStartJourney = (e: React.FormEvent) => {
+  // Start the safe journey with real geocoding and real road route
+  const handleStartJourney = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driverName || !carNumber || !carModel || !pickupLocation || !dropLocation) return;
 
-    // Reset alert flags
+    setIsCalculatingRoute(true);
     setShowAlert(false);
 
-    // Get current GPS coordinates or use Kolkata fallback from screenshots
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const start = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          initializeSimulation(start);
-        },
-        (err) => {
-          console.warn('[SAFE_RIDE] GPS unavailable, using fallback coordinates.');
-          initializeSimulation({ lat: 22.4823, lng: 88.2987 });
-        },
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    } else {
-      initializeSimulation({ lat: 22.4823, lng: 88.2987 });
+    try {
+      // 1. Geocode Pickup & Drop locations with viewbox proximity
+      const startGeo = await geocodeLocation(pickupLocation);
+      const dropGeo = await geocodeLocation(dropLocation, startGeo);
+
+      const start = { lat: startGeo.lat, lng: startGeo.lng };
+      const end = { lat: dropGeo.lat, lng: dropGeo.lng };
+
+      // 2. Fetch real road driving route via OSRM
+      const route = await fetchDrivingRoute(start, end);
+
+      setPickupCoords(start);
+      setGpsCoords(start);
+      setDestination(end);
+      setRouteWaypoints(route.waypoints);
+      setSimulationPath(route.waypoints);
+      setTotalTripDistanceKm(route.distanceKm);
+      setTotalTripDurationMins(route.durationMins);
+      setCurrentPathIndex(0);
+      setHasReachedDestination(false);
+      setIsVeeringOff(false);
+      setDeviationDistance(0);
+      setIsDriving(false); // Sits stationary at pickup until user presses Start Driving
+      setMapMode('fit');
+      setRideState('active');
+    } catch (err) {
+      console.error('[SAFE_RIDE] Failed to initialize journey:', err);
+    } finally {
+      setIsCalculatingRoute(false);
     }
   };
 
-  const initializeSimulation = (start: { lat: number; lng: number }) => {
-    // Generate a destination about 2.5 km away
-    const end = { lat: start.lat + 0.014, lng: start.lng + 0.018 };
-    const path = generatePath(start, end);
-
-    setGpsCoords(start);
-    setDestination(end);
-    setRouteWaypoints(path);
-    setSimulationPath(path);
-    setCurrentPathIndex(0);
-    setHasReachedDestination(false);
-    setIsVeeringOff(false);
-    setDeviationDistance(0);
-    setRideState('active');
-  };
-
-  // Run the animated coordinate simulation
+  // Run the coordinate simulation ONLY when isDriving is active
   useEffect(() => {
-    if (rideState !== 'active' || simulationPath.length === 0) return;
+    if (rideState !== 'active' || simulationPath.length === 0 || !isDriving) {
+      if (simulationIntervalRef.current) {
+        clearInterval(simulationIntervalRef.current);
+      }
+      return;
+    }
+
+    // Step size based on route length & speed multiplier
+    const baseStep = Math.max(1, Math.floor(simulationPath.length / 40));
+    const stepSize = Math.max(1, baseStep * simSpeed);
 
     simulationIntervalRef.current = window.setInterval(() => {
       setCurrentPathIndex((prevIndex) => {
-        const nextIndex = prevIndex + 1;
+        const nextIndex = Math.min(prevIndex + stepSize, simulationPath.length - 1);
         
-        if (nextIndex < simulationPath.length) {
+        if (prevIndex < simulationPath.length - 1) {
           const currentPoint = simulationPath[nextIndex];
           setGpsCoords(currentPoint);
 
@@ -253,24 +481,32 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
             setShowAlert(false);
           }
 
+          if (nextIndex >= simulationPath.length - 1) {
+            if (simulationIntervalRef.current) {
+              clearInterval(simulationIntervalRef.current);
+            }
+            setIsDriving(false);
+            setHasReachedDestination(true);
+          }
+
           return nextIndex;
         } else {
-          // Reached destination but don't automatically end
           if (simulationIntervalRef.current) {
             clearInterval(simulationIntervalRef.current);
           }
+          setIsDriving(false);
           setHasReachedDestination(true);
           return prevIndex;
         }
       });
-    }, 1500);
+    }, 1000);
 
     return () => {
       if (simulationIntervalRef.current) {
         clearInterval(simulationIntervalRef.current);
       }
     };
-  }, [rideState, simulationPath, routeWaypoints]);
+  }, [rideState, simulationPath, routeWaypoints, isDriving, simSpeed]);
 
   // Trigger backend monitoring session on deviation
   const triggerDeviationMonitoring = async () => {
@@ -288,8 +524,9 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     const currentIndex = currentPathIndex;
     const remaining = simulationPath.slice(currentIndex);
     const deviated = remaining.map((pt, i) => {
-      const offsetLat = 0.005 + (i * 0.0007);
-      const offsetLng = -0.006 - (i * 0.0007);
+      // Diverge noticeably perpendicular to route (approx 0.006 lat/lng ~ 600m+)
+      const offsetLat = 0.006 + (i * 0.0006);
+      const offsetLng = -0.006 - (i * 0.0006);
       return {
         lat: pt.lat + offsetLat,
         lng: pt.lng + offsetLng
@@ -301,16 +538,17 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     setIsVeeringOff(true);
   };
 
-  // Re-routes back to planned destination
-  const handleRejoinRoute = () => {
+  // Re-routes back to planned destination using real road routing
+  const handleRejoinRoute = async () => {
     if (!gpsCoords || !destination) return;
-    const rejoinPath = generatePath(gpsCoords, destination);
-    setRouteWaypoints(rejoinPath);
-    setSimulationPath(rejoinPath);
-    setCurrentPathIndex(0);
     setIsVeeringOff(false);
     setShowAlert(false);
     setDeviationDistance(0);
+
+    const route = await fetchDrivingRoute(gpsCoords, destination);
+    setRouteWaypoints(route.waypoints);
+    setSimulationPath(route.waypoints);
+    setCurrentPathIndex(0);
   };
 
   // Complete journey manually
@@ -333,6 +571,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     if (simulationIntervalRef.current) {
       clearInterval(simulationIntervalRef.current);
     }
+    setIsDriving(false);
     setRideState('arrived');
   };
 
@@ -355,6 +594,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
       clearInterval(simulationIntervalRef.current);
     }
     setRideState('setup');
+    setPickupCoords(null);
     setGpsCoords(null);
     setDestination(null);
     setRouteWaypoints([]);
@@ -364,11 +604,35 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     setHasReachedDestination(false);
     setIsVeeringOff(false);
     setDeviationDistance(0);
+    setTotalTripDistanceKm(0);
+    setTotalTripDurationMins(0);
+    setIsDriving(false);
+    setMapMode('fit');
   };
 
-  // Calculations for active trip
-  const distanceRemaining = gpsCoords && destination ? haversineDistance(gpsCoords, destination) : 0;
-  const estimatedEta = Math.max(1, Math.round(distanceRemaining * 5));
+  // Dynamic calculations along remaining road waypoints
+  const calculateRemainingDistance = (): number => {
+    if (hasReachedDestination) return 0;
+    if (!gpsCoords || !destination || simulationPath.length === 0) return 0;
+    
+    // Sum segment lengths from currentPathIndex to end of simulationPath
+    let remaining = 0;
+    for (let i = currentPathIndex; i < simulationPath.length - 1; i++) {
+      remaining += haversineDistance(simulationPath[i], simulationPath[i + 1]);
+    }
+    if (remaining === 0 && currentPathIndex < simulationPath.length - 1) {
+      remaining = haversineDistance(gpsCoords, destination);
+    }
+    return remaining;
+  };
+
+  const distanceRemaining = calculateRemainingDistance();
+  const estimatedEta = hasReachedDestination 
+    ? 0 
+    : (totalTripDistanceKm > 0 && totalTripDurationMins > 0
+        ? Math.max(1, Math.round((distanceRemaining / totalTripDistanceKm) * totalTripDurationMins))
+        : Math.max(1, Math.round(distanceRemaining * 2.2))
+      );
 
   return (
     <div className="pt-20 pb-36 px-6 font-sans select-none animate-fade-in-scale">
@@ -440,7 +704,6 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
 
                   {/* Route Connection Timeline */}
                   <div className="pt-3.5 border-t border-white/5 space-y-2.5 relative pl-5">
-                    {/* Vertical line connector */}
                     <div className="absolute left-[7px] top-4 bottom-4 w-0.5 border-l border-dashed border-white/10" />
                     
                     <div className="relative flex items-center gap-2 text-xs">
@@ -489,8 +752,8 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                   <Car className="w-5.5 h-5.5 text-primary relative z-10 animate-float" />
                 </div>
                 <h3 className="text-base font-black text-white tracking-widest uppercase text-gradient bg-gradient-to-r from-primary to-[#ffcec8]">Configure Safe Ride</h3>
-                <p className="text-[11px] text-on-surface-variant font-medium opacity-80 mt-1 max-w-[200px]">
-                  Provide vehicle and driver details to enable smart anomaly checking.
+                <p className="text-[11px] text-on-surface-variant font-medium opacity-80 mt-1 max-w-[240px]">
+                  Real road mapping & live anomaly monitoring with full street level detail.
                 </p>
               </div>
 
@@ -506,7 +769,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                     <input
                       type="text"
                       className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-sm placeholder:text-on-surface-variant/40"
-                      placeholder="e.g. Marcus Chen"
+                      placeholder="e.g. John"
                       value={driverName}
                       onChange={(e) => setDriverName(e.target.value)}
                       required
@@ -526,7 +789,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                       <input
                         type="text"
                         className="w-full h-11 bg-transparent text-on-surface pl-10 pr-3 rounded-xl focus:ring-0 focus:outline-none text-sm placeholder:text-on-surface-variant/40"
-                        placeholder="e.g. Toyota Camry"
+                        placeholder="e.g. Toyota"
                         value={carModel}
                         onChange={(e) => setCarModel(e.target.value)}
                         required
@@ -544,7 +807,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                       <input
                         type="text"
                         className="w-full h-11 bg-transparent text-on-surface pl-10 pr-3 rounded-xl focus:ring-0 focus:outline-none text-sm placeholder:text-on-surface-variant/40"
-                        placeholder="e.g. AR-8821"
+                        placeholder="e.g. 1234"
                         value={carNumber}
                         onChange={(e) => setCarNumber(e.target.value)}
                         required
@@ -555,15 +818,16 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
 
                 {/* Pickup Location */}
                 <div className="space-y-1.5 group">
-                  <label className="text-[9px] font-bold text-on-surface-variant/80 ml-1 tracking-widest uppercase">
-                    Pickup Location
+                  <label className="text-[9px] font-bold text-on-surface-variant/80 ml-1 tracking-widest uppercase flex items-center justify-between">
+                    <span>Pickup Location (Starting Point A)</span>
+                    <span className="text-emerald-400 font-bold text-[8px] uppercase">Pin A • Real Road</span>
                   </label>
-                  <div className="relative rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 focus-within:shadow-[0_0_12px_rgba(255,180,172,0.1)] transition-all duration-200">
-                    <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-secondary/70 group-focus-within:text-secondary transition-colors" />
+                  <div className="relative rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-emerald-500/50 focus-within:ring-2 focus-within:ring-emerald-500/10 focus-within:shadow-[0_0_12px_rgba(16,185,129,0.15)] transition-all duration-200">
+                    <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-emerald-400 group-focus-within:text-emerald-300 transition-colors" />
                     <input
                       type="text"
                       className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-sm placeholder:text-on-surface-variant/40"
-                      placeholder="Enter pickup point"
+                      placeholder="e.g. Manipal University Jaipur"
                       value={pickupLocation}
                       onChange={(e) => setPickupLocation(e.target.value)}
                       required
@@ -573,15 +837,16 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
 
                 {/* Destination Location */}
                 <div className="space-y-1.5 group">
-                  <label className="text-[9px] font-bold text-on-surface-variant/80 ml-1 tracking-widest uppercase">
-                    Drop Location
+                  <label className="text-[9px] font-bold text-on-surface-variant/80 ml-1 tracking-widest uppercase flex items-center justify-between">
+                    <span>Drop Destination (Destination B)</span>
+                    <span className="text-rose-400 font-bold text-[8px] uppercase">Pin B • Driving Path</span>
                   </label>
-                  <div className="relative rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 focus-within:shadow-[0_0_12px_rgba(255,180,172,0.1)] transition-all duration-200">
-                    <Navigation className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-primary/70 group-focus-within:text-primary transition-colors" />
+                  <div className="relative rounded-xl border border-outline-variant bg-surface-container-lowest focus-within:border-rose-500/50 focus-within:ring-2 focus-within:ring-rose-500/10 focus-within:shadow-[0_0_12px_rgba(239,68,68,0.15)] transition-all duration-200">
+                    <Navigation className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-rose-400 group-focus-within:text-rose-300 transition-colors" />
                     <input
                       type="text"
                       className="w-full h-11 bg-transparent text-on-surface pl-11 pr-4 rounded-xl focus:ring-0 focus:outline-none text-sm placeholder:text-on-surface-variant/40"
-                      placeholder="Enter drop destination"
+                      placeholder="e.g. Dehmi Kalan or Bapu Nagar"
                       value={dropLocation}
                       onChange={(e) => setDropLocation(e.target.value)}
                       required
@@ -589,12 +854,68 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                   </div>
                 </div>
 
+                {/* Convenient Quick Suggestion Presets */}
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[8px] font-bold text-on-surface-variant/60 uppercase tracking-widest block">Quick Route Presets:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickupLocation('Manipal University Jaipur');
+                        setDropLocation('Dehmi Kalan');
+                        if (!driverName) setDriverName('John');
+                        if (!carModel) setCarModel('Toyota');
+                        if (!carNumber) setCarNumber('1234');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-surface-container text-[10px] text-white/80 border border-white/5 hover:border-emerald-500/40 hover:text-white transition-all cursor-pointer font-medium"
+                    >
+                      📍 MUJ ➔ Dehmi Kalan (~0.9 km)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickupLocation('Manipal University Jaipur');
+                        setDropLocation('Bapu Nagar');
+                        if (!driverName) setDriverName('John');
+                        if (!carModel) setCarModel('Toyota');
+                        if (!carNumber) setCarNumber('1234');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-surface-container text-[10px] text-white/80 border border-white/5 hover:border-primary/40 hover:text-white transition-all cursor-pointer font-medium"
+                    >
+                      📍 MUJ ➔ Bapu Nagar (~29.5 km)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickupLocation('Manipal University Jaipur');
+                        setDropLocation('Vaishali Nagar');
+                        if (!driverName) setDriverName('John');
+                        if (!carModel) setCarModel('Toyota');
+                        if (!carNumber) setCarNumber('1234');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-surface-container text-[10px] text-white/80 border border-white/5 hover:border-secondary/40 hover:text-white transition-all cursor-pointer font-medium"
+                    >
+                      📍 MUJ ➔ Vaishali Nagar (~22.5 km)
+                    </button>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full h-12.5 bg-gradient-to-r from-secondary-container via-secondary to-secondary-container text-white font-black text-xs uppercase tracking-widest rounded-xl hover:shadow-[0_0_16px_rgba(51,148,241,0.3)] shadow-[0_4px_16px_rgba(51,148,241,0.15)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer shimmer animate-gradient-shift"
+                  disabled={isCalculatingRoute}
+                  className="w-full h-12.5 bg-gradient-to-r from-secondary-container via-secondary to-secondary-container text-white font-black text-xs uppercase tracking-widest rounded-xl hover:shadow-[0_0_16px_rgba(51,148,241,0.3)] shadow-[0_4px_16px_rgba(51,148,241,0.15)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer shimmer animate-gradient-shift disabled:opacity-75"
                 >
-                  <span>Start Safe Journey</span>
-                  <Play className="w-3.5 h-3.5 fill-white" />
+                  {isCalculatingRoute ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>Calculating Real Route & Distance...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Start Safe Journey</span>
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -602,11 +923,11 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
 
           {/* 2. ACTIVE MONITORING STATE */}
           {rideState === 'active' && (
-            <div className="space-y-5 animate-in fade-in duration-300">
+            <div className="space-y-4 animate-in fade-in duration-300">
               
               {/* Top Banner Warning Overlay */}
               {showAlert && (
-                <div className="glass-card mb-4 p-4 rounded-2xl border border-primary/30 bg-primary/[0.04] flex items-start justify-between animate-in slide-in-from-top duration-300 shadow-[0_4px_20px_rgba(255,84,76,0.1)]">
+                <div className="glass-card mb-3 p-4 rounded-2xl border border-primary/30 bg-primary/[0.04] flex items-start justify-between animate-in slide-in-from-top duration-300 shadow-[0_4px_20px_rgba(255,84,76,0.1)]">
                   <div className="flex gap-3">
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                       <AlertCircle className="w-4.5 h-4.5 text-primary animate-pulse" />
@@ -627,36 +948,108 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                 </div>
               )}
 
-              {/* Live Map Section */}
-              <section className="relative w-full h-[250px] rounded-2xl overflow-hidden glass-card shadow-lg z-0 gradient-border">
+              {/* Live Real Street Map (Identical Tactical OSM Dark as Police Dashboard) */}
+              <section className="relative w-full h-[280px] rounded-2xl overflow-hidden glass-card shadow-lg z-0 gradient-border">
                 {gpsCoords ? (
                   <MapContainer 
                     center={[gpsCoords.lat, gpsCoords.lng]} 
-                    zoom={14} 
+                    zoom={15} 
                     style={{ width: '100%', height: '100%' }}
                     zoomControl={false}
                   >
-                    <TileLayer
-                      url="https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-                      attribution='Tiles &copy; Esri'
-                      maxZoom={19}
-                    />
-                    <TileLayer
-                      url="https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-                      maxZoom={19}
-                    />
-                    <Marker position={[gpsCoords.lat, gpsCoords.lng]} icon={userIcon} />
-                    {destination && (
-                      <Marker position={[destination.lat, destination.lng]} icon={destinationIcon} />
-                    )}
-                    {routeWaypoints.length > 1 && (
-                      <Polyline 
-                        positions={routeWaypoints.map(w => [w.lat, w.lng])} 
-                        color={showAlert ? '#ff544c' : '#3394f1'} 
-                        weight={4}
+                    {/* Map Layers (Default: Tactical OSM Dark with high contrast street labels) */}
+                    {mapLayer === 'dark' && (
+                      <TileLayer
+                        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        className="tactical-osm-dark"
+                        maxZoom={19}
                       />
                     )}
-                    <RecenterMap coords={gpsCoords} />
+                    {mapLayer === 'standard' && (
+                      <TileLayer
+                        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        maxZoom={19}
+                      />
+                    )}
+                    {mapLayer === 'satellite' && (
+                      <>
+                        <TileLayer
+                          url="https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                          attribution="Tiles &copy; Esri"
+                          maxZoom={19}
+                        />
+                        <TileLayer
+                          url="https://services.arcgisonline.com/arcgis/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                          attribution=""
+                          maxZoom={19}
+                        />
+                      </>
+                    )}
+
+                    {/* Planned Road Route Polyline (Double Layered Google Maps Road Glow) */}
+                    {routeWaypoints.length > 1 && (
+                      <>
+                        <Polyline 
+                          positions={routeWaypoints.map(w => [w.lat, w.lng])} 
+                          color="#0284c7" 
+                          weight={7}
+                          opacity={0.4}
+                        />
+                        <Polyline 
+                          positions={routeWaypoints.map(w => [w.lat, w.lng])} 
+                          color={showAlert ? '#ff544c' : '#38bdf8'} 
+                          weight={4}
+                          opacity={0.95}
+                        />
+                      </>
+                    )}
+
+                    {/* Deviated Path Polyline (if simulating anomaly) */}
+                    {isVeeringOff && simulationPath.length > currentPathIndex && (
+                      <Polyline
+                        positions={simulationPath.slice(currentPathIndex).map(w => [w.lat, w.lng])}
+                        color="#f59e0b"
+                        weight={4}
+                        dashArray="6, 6"
+                        opacity={0.9}
+                      />
+                    )}
+
+                    {/* Starting Point A Marker (Google Maps Style Green Pin) */}
+                    {pickupCoords && (
+                      <Marker position={[pickupCoords.lat, pickupCoords.lng]} icon={pickupIcon}>
+                        <Popup>
+                          <div style={{ color: '#0f172a', fontFamily: 'sans-serif', fontSize: '11px', padding: '2px' }}>
+                            <strong style={{ color: '#059669', display: 'block', textTransform: 'uppercase', fontSize: '10px' }}>🟢 Pickup Point (A)</strong>
+                            <span>{pickupLocation}</span>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+
+                    {/* Destination Point B Marker (Google Maps Style Red Pin) */}
+                    {destination && (
+                      <Marker position={[destination.lat, destination.lng]} icon={destinationIcon}>
+                        <Popup>
+                          <div style={{ color: '#0f172a', fontFamily: 'sans-serif', fontSize: '11px', padding: '2px' }}>
+                            <strong style={{ color: '#dc2626', display: 'block', textTransform: 'uppercase', fontSize: '10px' }}>🔴 Drop Destination (B)</strong>
+                            <span>{dropLocation}</span>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+
+                    {/* Live Vehicle Marker */}
+                    <Marker position={[gpsCoords.lat, gpsCoords.lng]} icon={userIcon} />
+
+                    {/* Dynamic Auto-Fit & Follow View Controller */}
+                    <MapController 
+                      waypoints={routeWaypoints} 
+                      gpsCoords={gpsCoords} 
+                      mode={mapMode} 
+                    />
                   </MapContainer>
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-surface-container/30">
@@ -665,15 +1058,81 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                 )}
                 
                 {/* Floating Status Indicator */}
-                <div className="absolute top-4 left-4 glass-card px-3.5 py-1.5 rounded-full flex items-center gap-2 border-white/10" style={{ zIndex: 1000 }}>
-                  <span className={`w-2 h-2 rounded-full ${hasReachedDestination ? 'bg-secondary animate-pulse shadow-[0_0_8px_rgba(162,201,255,0.8)]' : showAlert ? 'bg-primary animate-ping shadow-[0_0_8px_rgba(255,84,76,0.8)]' : 'bg-tertiary animate-pulse shadow-[0_0_8px_rgba(114,212,239,0.8)]'}`} />
+                <div className="absolute top-3 left-3 glass-card px-3 py-1.5 rounded-full flex items-center gap-2 border-white/10" style={{ zIndex: 1000 }}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    hasReachedDestination 
+                      ? 'bg-secondary animate-pulse shadow-[0_0_8px_rgba(162,201,255,0.8)]' 
+                      : showAlert 
+                        ? 'bg-primary animate-ping shadow-[0_0_8px_rgba(255,84,76,0.8)]' 
+                        : isDriving 
+                          ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' 
+                          : 'bg-amber-400'
+                  }`} />
                   <span className="text-[9px] font-black text-white uppercase tracking-widest font-sans">
-                    {hasReachedDestination ? 'Destination Reached' : showAlert ? 'Route Deviation detected' : 'Tracking Active'}
+                    {hasReachedDestination ? 'Destination Reached' : showAlert ? 'Route Deviation detected' : isDriving ? 'Driving Simulation' : 'Ready at Pickup (A)'}
                   </span>
                 </div>
 
+                {/* Map View Mode Toggle: Fit Route vs Follow Vehicle */}
+                <div className="absolute top-3 right-3 glass-card p-0.5 rounded-lg flex items-center gap-1 border-white/10" style={{ zIndex: 1000 }}>
+                  <button
+                    type="button"
+                    onClick={() => setMapMode('fit')}
+                    className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      mapMode === 'fit' ? 'bg-secondary text-[#0a192f] shadow-sm' : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Fit entire route between Start and Destination"
+                  >
+                    Route
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapMode('follow')}
+                    className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      mapMode === 'follow' ? 'bg-secondary text-[#0a192f] shadow-sm' : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Focus and follow vehicle position"
+                  >
+                    Follow
+                  </button>
+                </div>
+
+                {/* Map Layer Switcher: Tactical Dark vs Street vs Satellite */}
+                <div className="absolute bottom-3 right-3 glass-card p-0.5 rounded-lg flex items-center gap-0.5 border-white/10" style={{ zIndex: 1000 }}>
+                  <button
+                    type="button"
+                    onClick={() => setMapLayer('dark')}
+                    className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      mapLayer === 'dark' ? 'bg-emerald-500 text-white font-black shadow-sm' : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Tactical Dark Map (Same as Police Dashboard)"
+                  >
+                    Tactical (Police)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapLayer('standard')}
+                    className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      mapLayer === 'standard' ? 'bg-secondary text-[#0a192f] shadow-sm' : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Standard OSM Street View"
+                  >
+                    Street
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapLayer('satellite')}
+                    className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      mapLayer === 'satellite' ? 'bg-secondary text-[#0a192f] shadow-sm' : 'text-on-surface-variant hover:text-white'
+                    }`}
+                    title="Satellite Recon with Roads"
+                  >
+                    Sat
+                  </button>
+                </div>
+
                 {/* Live GPS coordinates */}
-                <div className="absolute bottom-4 left-4 glass-card px-3 py-1.5 rounded-full flex items-center gap-2 border-white/10" style={{ zIndex: 1000 }}>
+                <div className="absolute bottom-3 left-3 glass-card px-2.5 py-1 rounded-full flex items-center gap-1.5 border-white/10" style={{ zIndex: 1000 }}>
                   <MapPin className="w-3 h-3 text-secondary" />
                   <span className="text-[9px] font-mono font-bold text-white">
                     {gpsCoords 
@@ -683,7 +1142,85 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                 </div>
               </section>
 
-              {/* Trip Status Card Grid */}
+              {/* Simulation Drive Controller (User Controls When & How Fast to Drive) */}
+              <div className="glass-card rounded-2xl p-3 border border-white/10 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasReachedDestination) {
+                        setCurrentPathIndex(0);
+                        if (simulationPath.length > 0) {
+                          setGpsCoords(simulationPath[0]);
+                        }
+                        setHasReachedDestination(false);
+                        setIsDriving(true);
+                      } else {
+                        setIsDriving(!isDriving);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer active:scale-95 ${
+                      isDriving 
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' 
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+                    }`}
+                  >
+                    {isDriving ? (
+                      <>
+                        <Pause className="w-3.5 h-3.5 fill-amber-300" />
+                        <span>Pause Simulation</span>
+                      </>
+                    ) : hasReachedDestination ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Replay Trip</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5 fill-emerald-400 text-emerald-400" />
+                        <span>Start Driving</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDriving(false);
+                      setCurrentPathIndex(0);
+                      if (simulationPath.length > 0) {
+                        setGpsCoords(simulationPath[0]);
+                      }
+                      setHasReachedDestination(false);
+                    }}
+                    className="p-2 rounded-xl glass-card hover:bg-white/10 text-on-surface-variant text-xs border border-white/5 active:scale-95 transition-all cursor-pointer"
+                    title="Reset vehicle back to Pickup Point (A)"
+                  >
+                    <RotateCcw className="w-4 h-4 text-secondary" />
+                  </button>
+                </div>
+
+                {/* Speed Multiplier Pill */}
+                <div className="flex items-center gap-1 bg-surface-container-high/60 p-1 rounded-xl border border-white/5 text-[10px] font-mono font-bold">
+                  <span className="text-[9px] text-on-surface-variant/60 uppercase px-1 font-sans">Speed:</span>
+                  {[1, 2, 4].map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => setSimSpeed(spd)}
+                      className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+                        simSpeed === spd 
+                          ? 'bg-primary text-surface-container-lowest font-black shadow-sm' 
+                          : 'text-on-surface-variant hover:text-white'
+                      }`}
+                    >
+                      {spd}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Dynamic Real Trip Status Card Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="glass-card rounded-2xl p-4 text-center hover-lift gradient-border">
                   <p className="text-[9px] font-black text-on-surface-variant/60 uppercase tracking-widest mb-1">ETA</p>
@@ -694,7 +1231,7 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                 <div className="glass-card rounded-2xl p-4 text-center hover-lift gradient-border">
                   <p className="text-[9px] font-black text-on-surface-variant/60 uppercase tracking-widest mb-1">Distance Left</p>
                   <h3 className="text-lg font-black text-white">
-                    {hasReachedDestination ? 0 : distanceRemaining.toFixed(1)} <span className="text-xs font-bold text-on-surface-variant">km</span>
+                    {hasReachedDestination ? '0.0' : distanceRemaining.toFixed(1)} <span className="text-xs font-bold text-on-surface-variant">km</span>
                   </h3>
                 </div>
               </div>
@@ -747,23 +1284,22 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
                   </div>
                 </div>
 
-                {/* Elegant Location Route Timeline */}
+                {/* Location Route Timeline */}
                 <div className="pt-4 border-t border-outline-variant/20 space-y-3.5 relative pl-6 z-10">
-                  {/* Vertical line connector */}
                   <div className="absolute left-[9px] top-6.5 bottom-6.5 w-0.5 border-l border-dashed border-white/15" />
                   
                   <div className="relative flex items-start gap-3.5 text-xs text-on-surface-variant">
-                    <div className="absolute -left-[20px] top-1.5 w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_rgba(162,201,255,0.6)]" />
+                    <div className="absolute -left-[20px] top-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                     <div className="flex flex-col">
-                      <span className="text-[8px] font-bold text-secondary uppercase tracking-widest">Pickup point</span>
+                      <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest">Pickup point (A)</span>
                       <span className="text-white/90 font-bold text-[11px] mt-0.5 truncate max-w-[210px]">{pickupLocation}</span>
                     </div>
                   </div>
                   
                   <div className="relative flex items-start gap-3.5 text-xs text-on-surface-variant">
-                    <div className="absolute -left-[20px] top-1.5 w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(255,180,172,0.6)]" />
+                    <div className="absolute -left-[20px] top-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
                     <div className="flex flex-col">
-                      <span className="text-[8px] font-bold text-primary uppercase tracking-widest">Drop destination</span>
+                      <span className="text-[8px] font-bold text-rose-400 uppercase tracking-widest">Drop destination (B)</span>
                       <span className="text-white/90 font-bold text-[11px] mt-0.5 truncate max-w-[210px]">{dropLocation}</span>
                     </div>
                   </div>
@@ -959,4 +1495,3 @@ export default function SafeRideView({ onTriggerSOS }: SafeRideProps) {
     </div>
   );
 }
-

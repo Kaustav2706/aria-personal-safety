@@ -9,9 +9,9 @@ import { checkIntervalRateLimit, checkCounterRateLimit } from '../config/redis.j
 const CHUNK_INTERVAL_MS = 3000; // 1 chunk every 3 seconds per user
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const LOGIN_WINDOW_SECONDS = 15 * 60;
-const LOGIN_EMAIL_LIMIT = 5;
-const LOGIN_IP_LIMIT = 20;
-const REGISTRATION_IP_LIMIT = 5;
+const LOGIN_EMAIL_LIMIT = process.env.NODE_ENV === 'development' ? 100 : 5;
+const LOGIN_IP_LIMIT = process.env.NODE_ENV === 'development' ? 200 : 20;
+const REGISTRATION_IP_LIMIT = process.env.NODE_ENV === 'development' ? 50 : 5;
 
 function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || 'unknown';
