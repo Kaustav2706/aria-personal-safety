@@ -47,8 +47,11 @@ async function findCooldownIncident(userId) {
   const recentCutoff = Date.now() - INCIDENT_COOLDOWN_MS;
   try {
     const incidents = await Incident.findByUserId(userId);
+    // Guard covers ALL auto-trigger types so that a frontend-fired "audio"
+    // or "motion" SOS within the cooldown window is reused rather than
+    // creating a second incident (and a second round of alerts). Bug N7.
     const existing = incidents.find((incident) =>
-      incident.triggerType === 'monitoring' &&
+      ['monitoring', 'audio', 'motion'].includes(incident.triggerType) &&
       incident.status === 'active' &&
       new Date(incident.createdAt).getTime() >= recentCutoff
     ) || null;
