@@ -2,9 +2,16 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import crypto from 'crypto';
 
 export class Incident {
-  static async create({ userId, status = 'active', triggerType = 'manual', latitude, longitude, riskScore = 0, audioTranscript = '', audioUrl = null, notificationLogs = [] }) {
+  static async create({ userId, status = 'active', triggerType = 'manual', latitude = null, longitude = null, riskScore = 0, audioTranscript = '', audioUrl = null, notificationLogs = [] }) {
 
     const incidentId = crypto.randomUUID();
+
+    const hasValidCoords = latitude !== null && latitude !== undefined && !isNaN(parseFloat(latitude)) &&
+      longitude !== null && longitude !== undefined && !isNaN(parseFloat(longitude)) &&
+      !(parseFloat(latitude) === 0 && parseFloat(longitude) === 0);
+
+    const latVal = hasValidCoords ? parseFloat(latitude) : null;
+    const lngVal = hasValidCoords ? parseFloat(longitude) : null;
 
     if (dbMode === 'memory') {
       const newIncident = {
@@ -12,8 +19,8 @@ export class Incident {
         userId,
         status,
         triggerType,
-        latitude: parseFloat(latitude) || 0.0,
-        longitude: parseFloat(longitude) || 0.0,
+        latitude: latVal,
+        longitude: lngVal,
         riskScore: parseInt(riskScore) || 0,
         audioTranscript,
         audioUrl,
@@ -22,14 +29,16 @@ export class Incident {
       };
 
       memoryStore.incidents.push(newIncident);
-      memoryStore.locationHistory.push({
-        id: memoryStore.locationHistory.length + 1,
-        incidentId,
-        latitude: parseFloat(latitude) || 0.0,
-        longitude: parseFloat(longitude) || 0.0,
-        riskScore: parseInt(riskScore) || 0,
-        timestamp: new Date().toISOString()
-      });
+      if (hasValidCoords) {
+        memoryStore.locationHistory.push({
+          id: memoryStore.locationHistory.length + 1,
+          incidentId,
+          latitude: latVal,
+          longitude: lngVal,
+          riskScore: parseInt(riskScore) || 0,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       saveMemoryStore();
       return newIncident;
@@ -51,8 +60,8 @@ export class Incident {
         userId,
         status,
         triggerType,
-        parseFloat(latitude) || 0.0,
-        parseFloat(longitude) || 0.0,
+        latVal,
+        lngVal,
         parseInt(riskScore) || 0,
         audioTranscript,
         audioUrl,
@@ -60,16 +69,18 @@ export class Incident {
       ]);
       const incident = res.rows[0];
 
-      const insertHistoryQuery = `
-        INSERT INTO location_history (incident_id, latitude, longitude, risk_score)
-        VALUES ($1, $2, $3, $4)
-      `;
-      await client.query(insertHistoryQuery, [
-        incidentId,
-        parseFloat(latitude) || 0.0,
-        parseFloat(longitude) || 0.0,
-        parseInt(riskScore) || 0
-      ]);
+      if (hasValidCoords) {
+        const insertHistoryQuery = `
+          INSERT INTO location_history (incident_id, latitude, longitude, risk_score)
+          VALUES ($1, $2, $3, $4)
+        `;
+        await client.query(insertHistoryQuery, [
+          incidentId,
+          latVal,
+          lngVal,
+          parseInt(riskScore) || 0
+        ]);
+      }
 
       await client.query('COMMIT');
       return incident;
@@ -158,21 +169,28 @@ static async findByUserId(userId) {
 
       const current = memoryStore.incidents[idx];
       if (updates.status) current.status = updates.status;
-      if (updates.latitude !== undefined) current.latitude = parseFloat(updates.latitude);
-      if (updates.longitude !== undefined) current.longitude = parseFloat(updates.longitude);
+      if (updates.latitude !== undefined) {
+        current.latitude = (updates.latitude !== null && !isNaN(parseFloat(updates.latitude))) ? parseFloat(updates.latitude) : null;
+      }
+      if (updates.longitude !== undefined) {
+        current.longitude = (updates.longitude !== null && !isNaN(parseFloat(updates.longitude))) ? parseFloat(updates.longitude) : null;
+      }
       if (updates.riskScore !== undefined) current.riskScore = parseInt(updates.riskScore);
       if (updates.audioTranscript) current.audioTranscript = updates.audioTranscript;
       if (updates.audioUrl !== undefined) current.audioUrl = updates.audioUrl;
+      if (updates.notificationLogs !== undefined) current.notificationLogs = updates.notificationLogs;
 
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
-        memoryStore.locationHistory.push({
-          id: memoryStore.locationHistory.length + 1,
-          incidentId: id,
-          latitude: current.latitude,
-          longitude: current.longitude,
-          riskScore: current.riskScore,
-          timestamp: new Date().toISOString()
-        });
+        if (current.latitude !== null && current.longitude !== null && !(current.latitude === 0 && current.longitude === 0)) {
+          memoryStore.locationHistory.push({
+            id: memoryStore.locationHistory.length + 1,
+            incidentId: id,
+            latitude: current.latitude,
+            longitude: current.longitude,
+            riskScore: current.riskScore || 0,
+            timestamp: new Date().toISOString()
+          });
+        }
       }
 
       saveMemoryStore();
@@ -192,12 +210,14 @@ static async findByUserId(userId) {
         values.push(updates.status);
       }
       if (updates.latitude !== undefined) {
+        const latVal = (updates.latitude !== null && !isNaN(parseFloat(updates.latitude))) ? parseFloat(updates.latitude) : null;
         fields.push(`latitude = $${valIdx++}`);
-        values.push(parseFloat(updates.latitude));
+        values.push(latVal);
       }
       if (updates.longitude !== undefined) {
+        const lngVal = (updates.longitude !== null && !isNaN(parseFloat(updates.longitude))) ? parseFloat(updates.longitude) : null;
         fields.push(`longitude = $${valIdx++}`);
-        values.push(parseFloat(updates.longitude));
+        values.push(lngVal);
       }
       if (updates.riskScore !== undefined) {
         fields.push(`risk_score = $${valIdx++}`);
@@ -234,16 +254,20 @@ static async findByUserId(userId) {
       const incident = res.rows[0];
 
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
-        const insertHistoryQuery = `
-          INSERT INTO location_history (incident_id, latitude, longitude, risk_score)
-          VALUES ($1, $2, $3, $4)
-        `;
-        await client.query(insertHistoryQuery, [
-          id,
-          parseFloat(incident.latitude),
-          parseFloat(incident.longitude),
-          parseInt(incident.riskScore)
-        ]);
+        const updatedLat = incident.latitude !== null ? parseFloat(incident.latitude) : null;
+        const updatedLng = incident.longitude !== null ? parseFloat(incident.longitude) : null;
+        if (updatedLat !== null && updatedLng !== null && !isNaN(updatedLat) && !isNaN(updatedLng) && !(updatedLat === 0 && updatedLng === 0)) {
+          const insertHistoryQuery = `
+            INSERT INTO location_history (incident_id, latitude, longitude, risk_score)
+            VALUES ($1, $2, $3, $4)
+          `;
+          await client.query(insertHistoryQuery, [
+            id,
+            updatedLat,
+            updatedLng,
+            parseInt(incident.riskScore) || 0
+          ]);
+        }
       }
 
       await client.query('COMMIT');

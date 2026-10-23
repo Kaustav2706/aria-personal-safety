@@ -1,53 +1,14 @@
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
 import { dispatchTieredAlerts } from '../config/alertConfig.js';
+import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { normalizePhoneNumber } from '../utils/phoneUtils.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { createIncident } from './incident.controller.js';
 
-export const triggerSOS = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { latitude, longitude, triggerType, riskScore, audioTranscript } = req.body;
-
-  const user = await User.findById(userId);
-  if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: 'User profile not found',
-      error: 'Not Found'
-    });
-  }
-
-  // Insert to PostgreSQL
-  const incident = await Incident.create({
-    userId,
-    status: 'active',
-    triggerType: triggerType || 'manual',
-    latitude: parseFloat(latitude) || 0.0,
-    longitude: parseFloat(longitude) || 0.0,
-    riskScore: riskScore || 85, // Default SOS score high risk
-    audioTranscript: audioTranscript || ''
-  });
-
-  // Notify Emergency Contacts and Police Dispatch via tiered thresholds
-  await dispatchTieredAlerts({ user, incident });
-
-  // Emit websocket update
-  const io = req.app.get('io');
-  if (io) {
-    io.emit('incidentCreated', {
-      ...incident,
-      userName: user.name,
-      userPhone: user.phone
-    });
-  }
-
-  return res.status(201).json({
-    success: true,
-    message: 'SOS trigger processed and emergency alerts dispatched',
-    incident
-  });
-});
+// Route through the primary incident creation handler so the two SOS endpoints cannot drift apart
+export const triggerSOS = createIncident;
 
 export const updateLocation = asyncHandler(async (req, res) => {
   const { incidentId, latitude, longitude, riskScore } = req.body;
@@ -148,11 +109,25 @@ export const updateLocation = asyncHandler(async (req, res) => {
     }
   }
 
+  const hadNoLocation = incident.latitude === null || incident.latitude === undefined ||
+    (parseFloat(incident.latitude) === 0 && parseFloat(incident.longitude) === 0);
+  const isRealFix = !isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0);
+
   // Update incident and automatically log to location_history
   const updated = await Incident.update(incidentId, {
     latitude: lat,
     longitude: lng
   });
+
+  if (hadNoLocation && isRealFix) {
+    try {
+      const user = await User.findById(incident.userId);
+      const contacts = user?.emergencyContacts || [];
+      await TwilioService.sendLocationFollowUp(contacts, user, updated, { latitude: lat, longitude: lng });
+    } catch (followUpErr) {
+      console.error('[ALERT CONTROLLER] Failed to send location follow-up SMS:', followUpErr.message);
+    }
+  }
 
   // Emit updates to WebSockets
   const io = req.app.get('io');

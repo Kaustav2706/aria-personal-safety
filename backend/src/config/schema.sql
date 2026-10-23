@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS incidents (
   user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(20) DEFAULT 'active', -- 'active' or 'resolved'
   trigger_type VARCHAR(20) DEFAULT 'manual', -- 'manual', 'audio', 'motion'
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   risk_score INTEGER DEFAULT 0,
   audio_transcript TEXT,
   audio_url TEXT,
@@ -77,3 +77,6 @@ CREATE INDEX IF NOT EXISTS auth_sessions_refresh_token_hash_idx ON auth_sessions
 DO $$ BEGIN
   ALTER TABLE incidents ADD COLUMN notification_logs JSONB;
 EXCEPTION WHEN duplicate_column THEN END $$;
+
+ALTER TABLE incidents ALTER COLUMN latitude DROP NOT NULL;
+ALTER TABLE incidents ALTER COLUMN longitude DROP NOT NULL;

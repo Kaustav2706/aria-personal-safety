@@ -1,6 +1,7 @@
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import { Incident } from '../models/Incident.model.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -169,6 +170,19 @@ export async function dispatchTieredAlerts({ user, incident }) {
     }
   } else {
     console.log(`[ALERT CONFIG] Tier 3 Skipped: Score ${score}% < ${police}% (Police threshold). Protecting dispatch from false alarms.`);
+  }
+
+  // Persist delivery outcomes directly on the incident record so every caller gets it for free
+  const targetIncidentId = incident?.id || incident?.incidentId;
+  if (targetIncidentId && results.notificationLogs && results.notificationLogs.length > 0) {
+    try {
+      await Incident.update(targetIncidentId, { notificationLogs: results.notificationLogs });
+      incident.notificationLogs = results.notificationLogs;
+    } catch (saveErr) {
+      console.error('[ALERT CONFIG] Failed to persist notification logs:', saveErr.message);
+    }
+  } else if (incident && results.notificationLogs) {
+    incident.notificationLogs = results.notificationLogs;
   }
 
   return results;

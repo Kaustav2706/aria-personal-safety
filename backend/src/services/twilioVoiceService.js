@@ -11,6 +11,8 @@ const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 const client = twilio(twilioSid, twilioToken);
 
 export class TwilioVoiceService {
+  static client = client;
+
   /**
    * Triggers an emergency voice call using Twilio.
    * @param {string} phoneNumber - The target recipient phone number.
@@ -36,15 +38,25 @@ export class TwilioVoiceService {
       };
     }
 
+    const hasLocation = incident?.latitude !== null && incident?.latitude !== undefined &&
+      incident?.longitude !== null && incident?.longitude !== undefined &&
+      !isNaN(parseFloat(incident.latitude)) && !isNaN(parseFloat(incident.longitude)) &&
+      !(parseFloat(incident.latitude) === 0 && parseFloat(incident.longitude) === 0);
+
+    const locationPhrase = hasLocation
+      ? `The incident location is latitude ${incident.latitude}, longitude ${incident.longitude}.`
+      : `Location unavailable — call her directly.`;
+
     // Spoken message TwiML construct
-    const speakMessage = `Emergency alert from ARIA. A critical threat has been triggered for user ${user?.name || 'Unknown User'}. The threat risk level is ${incident?.riskScore || 0} percent. The trigger type is ${incident?.triggerType || 'unknown'}. The incident location is latitude ${incident?.latitude || 'unknown'}, longitude ${incident?.longitude || 'unknown'}. Please respond immediately.`;
+    const speakMessage = `Emergency alert from ARIA. A critical threat has been triggered for user ${user?.name || 'Unknown User'}. The threat risk level is ${incident?.riskScore || 0} percent. The trigger type is ${incident?.triggerType || 'unknown'}. ${locationPhrase} Please respond immediately.`;
 
     const twimlContent = `<Response><Say voice="alice" language="en-US">${speakMessage}</Say></Response>`;
 
     try {
       console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ${masked}`);
 
-      const call = await client.calls.create({
+      const twilioClient = this.client || client;
+      const call = await twilioClient.calls.create({
         twiml: twimlContent,
         to: normalizedPhone,
         from: twilioPhoneNumber

@@ -11,10 +11,25 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import path from 'path';
 import crypto from 'crypto';
 
+// Fixed high risk score assigned to all manual SOS requests (person deliberately asking for help).
+// Independent of client payload and immune to random jitter or speech distress model false negatives.
+export const MANUAL_SOS_RISK_SCORE = parseInt(process.env.MANUAL_SOS_RISK_SCORE, 10) || 90;
+
 export const createIncident = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { latitude, longitude, triggerType, isIsolated, motionAnomaly, motion_anomaly } = req.body;
+  const { latitude, longitude, triggerType, isIsolated, motionAnomaly, motion_anomaly, location_unavailable, locationUnavailable } = req.body;
   const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
+
+  const isLocationUnavailable = location_unavailable === 'true' || location_unavailable === true ||
+    locationUnavailable === 'true' || locationUnavailable === true ||
+    latitude === undefined || latitude === null || latitude === '' ||
+    (parseFloat(latitude) === 0 && parseFloat(longitude) === 0);
+
+  const incidentLat = isLocationUnavailable ? null : (parseFloat(latitude) || null);
+  const incidentLng = isLocationUnavailable ? null : (parseFloat(longitude) || null);
+
+  const isManual = !triggerType || triggerType === 'manual';
+  const effectiveTriggerType = isManual ? 'manual' : triggerType;
 
   const user = await User.findById(userId);
   if (!user) {
@@ -26,7 +41,7 @@ export const createIncident = asyncHandler(async (req, res) => {
   }
 
   let finalTranscript = '';
-  let finalRiskScore = 50; // default moderate score
+  let finalRiskScore = isManual ? MANUAL_SOS_RISK_SCORE : 50;
   let analysisAvailable = true;
   let audioUrl = null;
   
@@ -36,8 +51,8 @@ export const createIncident = asyncHandler(async (req, res) => {
     const analysis = await AIService.analyzeAudioIncident({
       fileBuffer: req.file.buffer,
       fileName: req.file.originalname,
-      latitude: parseFloat(latitude) || 0.0,
-      longitude: parseFloat(longitude) || 0.0,
+      latitude: incidentLat || 0.0,
+      longitude: incidentLng || 0.0,
       isIsolated: isIsolated === 'true' || isIsolated === true,
       motionAnomaly: hasMotionAnomaly,
       // Let Whisper identify the spoken language from the recording.
@@ -48,31 +63,36 @@ export const createIncident = asyncHandler(async (req, res) => {
     const aiText = (analysis.transcript || '').trim();
     const clientText = (req.body.audioTranscript || '').trim();
     finalTranscript = aiText || clientText || '';
-    if (analysis.available) {
+
+    if (isManual) {
+      // Manual SOS is a person deliberately asking for help — fixed high score, ignoring any score from app
+      finalRiskScore = MANUAL_SOS_RISK_SCORE;
+    } else if (analysis.available) {
       finalRiskScore = analysis.riskScore;
     } else {
-      // A deliberate manual SOS must still alert responders if audio analysis fails.
-      let urgentScore = 78 + Math.floor(Math.random() * 5);
+      let calculatedScore = 50;
+      if (effectiveTriggerType === 'audio') calculatedScore = 70;
+      if (effectiveTriggerType === 'motion') calculatedScore = 65;
       const currentHour = new Date().getHours();
-      if (currentHour >= 20 || currentHour < 5) urgentScore += 10;
-      if (isIsolated === 'true' || isIsolated === true) urgentScore += 10;
-      finalRiskScore = Math.min(urgentScore, 100);
+      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
+      finalRiskScore = Math.min(calculatedScore, 100);
     }
   } else {
-    // Basic context calculation if no audio upload was captured
-    let calculatedScore = 50;
-    if (triggerType === 'manual') {
-      // Introduce minor variance (78-82) to avoid a perfectly constant base score
-      calculatedScore = 78 + Math.floor(Math.random() * 5);
+    if (isManual) {
+      // Manual SOS is a person deliberately asking for help — fixed high score, ignoring any score from app
+      finalRiskScore = MANUAL_SOS_RISK_SCORE;
+    } else {
+      let calculatedScore = 50;
+      if (effectiveTriggerType === 'audio') calculatedScore = 70;
+      if (effectiveTriggerType === 'motion') calculatedScore = 65;
+
+      const currentHour = new Date().getHours();
+      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
+
+      finalRiskScore = Math.min(calculatedScore, 100);
     }
-    if (triggerType === 'audio') calculatedScore = 70;
-    if (triggerType === 'motion') calculatedScore = 65;
-
-    const currentHour = new Date().getHours();
-    if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
-    if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
-
-    finalRiskScore = Math.min(calculatedScore, 100);
     finalTranscript = req.body.audioTranscript || '';
   }
 
@@ -87,13 +107,13 @@ export const createIncident = asyncHandler(async (req, res) => {
     }
   }
 
-  // 2. Save incident to PostgreSQL
+  // 2. Save incident to PostgreSQL — record that it was manual
   const incident = await Incident.create({
     userId,
     status: 'active',
-    triggerType: triggerType || 'manual',
-    latitude: parseFloat(latitude) || 0.0,
-    longitude: parseFloat(longitude) || 0.0,
+    triggerType: effectiveTriggerType,
+    latitude: incidentLat,
+    longitude: incidentLng,
     riskScore: finalRiskScore,
     audioTranscript: finalTranscript,
     audioUrl
@@ -102,15 +122,7 @@ export const createIncident = asyncHandler(async (req, res) => {
   // 3. Notify Emergency Contacts and Police Dispatch via tiered thresholds
   const alertResults = await dispatchTieredAlerts({ user, incident });
 
-  // Persist per-recipient delivery outcomes on the incident record so the
-  // dossier can report the real result instead of a hardcoded [Dispatched: OK].
-  if (alertResults.notificationLogs && alertResults.notificationLogs.length > 0) {
-    try {
-      await Incident.update(incident.id, { notificationLogs: alertResults.notificationLogs });
-    } catch (saveErr) {
-      console.error('[INCIDENT CONTROLLER] Failed to persist notification logs:', saveErr.message);
-    }
-  }
+  // dispatchTieredAlerts automatically persists per-recipient delivery outcomes on the incident record.
 
   // 4. Emit live update through Sockets
   const io = req.app.get('io');
@@ -124,7 +136,11 @@ export const createIncident = asyncHandler(async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: analysisAvailable ? 'Incident registered and safety protocols deployed' : 'Incident registered. AI analysis unavailable; automatic audio detection is not running.',
+    message: isManual
+      ? 'SOS trigger processed and emergency alerts dispatched'
+      : (analysisAvailable
+          ? 'Incident registered and safety protocols deployed'
+          : 'Incident registered. AI analysis unavailable; automatic audio detection is not running.'),
     analysisAvailable,
     incident
   });

@@ -1,4 +1,6 @@
 import { Incident } from '../models/Incident.model.js';
+import { User } from '../models/User.model.js';
+import { TwilioService } from '../services/twilioService.js';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
@@ -206,8 +208,22 @@ export function setupLiveTracking(io) {
 
         console.log(`[SOCKET.IO] Location update accepted for incident ${incidentId} → Lat: ${lat}, Lng: ${lng}`);
 
+        const hadNoLocation = incident.latitude === null || incident.latitude === undefined ||
+          (parseFloat(incident.latitude) === 0 && parseFloat(incident.longitude) === 0);
+        const isRealFix = !isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0);
+
         // Persist — Incident.update automatically appends to location_history and updates coords
-        await Incident.update(incidentId, { latitude: lat, longitude: lng });
+        const updated = await Incident.update(incidentId, { latitude: lat, longitude: lng });
+
+        if (hadNoLocation && isRealFix) {
+          try {
+            const user = await User.findById(incident.userId);
+            const contacts = user?.emergencyContacts || [];
+            await TwilioService.sendLocationFollowUp(contacts, user, updated, { latitude: lat, longitude: lng });
+          } catch (followUpErr) {
+            console.error('[SOCKET.IO] Failed to send location follow-up SMS:', followUpErr.message);
+          }
+        }
 
         const timestamp = new Date().toISOString();
 

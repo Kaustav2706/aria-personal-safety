@@ -84,7 +84,7 @@ async function findCooldownIncident(userId) {
 // ═══════════════════════════════════════════════════════════════════════════
 export const analyzeChunk = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { latitude, longitude, isIsolated, motionAnomaly, motion_anomaly, timestamp, sessionId, language } = req.body;
+  const { latitude, longitude, isIsolated, motionAnomaly, motion_anomaly, timestamp, sessionId, language, location_unavailable, locationUnavailable } = req.body;
   const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
 
   console.log(`[MONITORING] Chunk received from user ${userId} at ${timestamp || new Date().toISOString()}`);
@@ -178,12 +178,20 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
             }
           }
 
+          const isLocUnavailable = location_unavailable === 'true' || location_unavailable === true ||
+            locationUnavailable === 'true' || locationUnavailable === true ||
+            latitude === undefined || latitude === null || latitude === '' ||
+            (parseFloat(latitude) === 0 && parseFloat(longitude) === 0);
+
+          const incidentLat = isLocUnavailable ? null : (parseFloat(latitude) || null);
+          const incidentLng = isLocUnavailable ? null : (parseFloat(longitude) || null);
+
           const incident = await Incident.create({
             userId,
             status: 'active',
             triggerType: 'monitoring',
-            latitude: parseFloat(latitude) || 0.0,
-            longitude: parseFloat(longitude) || 0.0,
+            latitude: incidentLat,
+            longitude: incidentLng,
             riskScore,
             audioTranscript: transcript,
             audioUrl

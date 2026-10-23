@@ -123,8 +123,8 @@ export async function initializeDatabase() {
         user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
         status VARCHAR(20) DEFAULT 'active',
         trigger_type VARCHAR(20) DEFAULT 'manual',
-        latitude DOUBLE PRECISION NOT NULL,
-        longitude DOUBLE PRECISION NOT NULL,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
         risk_score INTEGER DEFAULT 0,
         audio_transcript TEXT,
         audio_url TEXT,
@@ -133,6 +133,8 @@ export async function initializeDatabase() {
 
       ALTER TABLE incidents ADD COLUMN IF NOT EXISTS audio_url TEXT;
       ALTER TABLE incidents ADD COLUMN IF NOT EXISTS notification_logs JSONB;
+      ALTER TABLE incidents ALTER COLUMN latitude DROP NOT NULL;
+      ALTER TABLE incidents ALTER COLUMN longitude DROP NOT NULL;
 
       CREATE TABLE IF NOT EXISTS location_history (
         id SERIAL PRIMARY KEY,
