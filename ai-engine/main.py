@@ -83,6 +83,7 @@ async def analyze_incident_audio(
     motion_anomaly: Optional[bool] = Form(False),
     # BCP-47 language code from the user's profile (e.g. 'hi', 'en').
     # Passed explicitly so Whisper doesn't have to auto-detect on short clips.
+    # When null/omitted, Whisper auto-detects the language from the recording.
     language: Optional[str] = Form(None),
     x_internal_secret: Optional[str] = Header(None)
 ):
@@ -118,7 +119,7 @@ async def analyze_incident_audio(
             whisper.transcribe_audio,
             temp_file_path,
             original_filename=file.filename,
-            language=language if (language and language != 'auto') else os.environ.get("DEFAULT_AUDIO_LANGUAGE", "en")
+            language=language if (language and language != 'auto') else None
         )
 
         # Handle unreadable audio cleanly without inventing distress phrases:

@@ -23,7 +23,7 @@ export const getProfile = asyncHandler(async (req, res) => {
 
 export const updateProfile = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { name, phone, emergencyContacts } = req.body;
+  const { name, phone, emergencyContacts, language } = req.body;
 
   const user = await User.findById(userId);
   if (!user) {
@@ -42,6 +42,11 @@ export const updateProfile = asyncHandler(async (req, res) => {
       name: c.name,
       phone: normalizePhoneNumber(c.phone)
     }));
+  }
+  if (language !== undefined) {
+    // Accept a BCP-47 code (e.g. 'hi', 'en', 'bn') or null to let Whisper auto-detect.
+    const lang = language === null || language === '' || language === 'auto' ? null : String(language).trim().toLowerCase().slice(0, 10);
+    updates.language = lang;
   }
 
   const updatedUser = await User.update(userId, updates);

@@ -10,6 +10,7 @@ interface MonitoringViewProps {
   onRiskScoreChange: (score: number) => void;
   onIncidentCreated: (incident: BackendIncident) => void;
   onTriggerSOS: (triggerType?: string, extraInfo?: string, coords?: { lat: number; lng: number } | null, audioBlob?: Blob | null) => void;
+  language?: string | null;
 }
 
 export default function MonitoringView({ 
@@ -18,7 +19,8 @@ export default function MonitoringView({
   onMonitoringChange, 
   onRiskScoreChange, 
   onIncidentCreated,
-  onTriggerSOS
+  onTriggerSOS,
+  language = null
 }: MonitoringViewProps) {
   // Session state
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -381,7 +383,9 @@ export default function MonitoringView({
           const rec = new SpeechRec();
           rec.continuous = true;
           rec.interimResults = true;
-          rec.lang = 'en-US';
+          // Match the user's preferred language; fall back to the browser default
+          // so the live transcript reflects what they actually speak.
+          rec.lang = language || (navigator.language || 'en-US');
           rec.onresult = (event: any) => {
             let combined = '';
             for (let i = 0; i < event.results.length; ++i) {
@@ -517,7 +521,10 @@ export default function MonitoringView({
       formData.append('isIsolated', 'false');
       formData.append('motion_anomaly', 'false');
       formData.append('sessionId', sid);
-      formData.append('language', 'en');
+      // Pass the user's preferred language so the AI engine can hint Whisper.
+      // Omit it entirely when unset — the backend then reads the profile and
+      // lets Whisper auto-detect instead of silently forcing English.
+      if (language) formData.append('language', language);
 
       const res = await monitoringService.uploadChunk(formData);
       const data = res.data as ChunkAnalysis;
