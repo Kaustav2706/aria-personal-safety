@@ -12,6 +12,8 @@ const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_EMAIL_LIMIT = process.env.NODE_ENV === 'development' ? 100 : 5;
 const LOGIN_IP_LIMIT = process.env.NODE_ENV === 'development' ? 200 : 20;
 const REGISTRATION_IP_LIMIT = process.env.NODE_ENV === 'development' ? 50 : 5;
+const CALL_CONTACT_WINDOW_SECONDS = 60 * 60; // 1 hour
+const CALL_CONTACT_LIMIT = process.env.NODE_ENV === 'development' ? 50 : 5; // 5 calls/hour per user
 
 function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || 'unknown';
@@ -123,6 +125,45 @@ export async function monitoringRateLimiter(req, res, next) {
     next();
   } catch (err) {
     console.warn('[MONITORING RATE LIMITER] Rate limiter error:', err.message);
+    next();
+  }
+}
+
+/**
+ * Express middleware that rate-limits voice calls placed via the call-contact endpoint.
+ * Enforces a maximum of 5 calls per authenticated user per hour to prevent
+ * harassment and unintended Twilio billing abuse.
+ */
+export async function callContactRateLimiter(req, res, next) {
+  const userId = req.userId;
+
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication required.',
+      error: 'Unauthorized'
+    });
+  }
+
+  try {
+    const check = await checkCounterRateLimit(
+      `ratelimit:call-contact:${userId}`,
+      CALL_CONTACT_LIMIT,
+      CALL_CONTACT_WINDOW_SECONDS
+    );
+
+    if (!check.allowed) {
+      console.warn(`[CALL RATE LIMITER] User ${userId} exceeded call-contact rate limit.`);
+      return res.status(429).json({
+        success: false,
+        message: 'Too many emergency calls. Maximum 5 calls per hour.',
+        error: 'Rate Limit Exceeded'
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.warn('[CALL RATE LIMITER] Rate limiter error:', err.message);
     next();
   }
 }
