@@ -37,7 +37,7 @@ export class TwilioService {
     // In development mode only, a test recipient can be specified via DEV_TEST_EMERGENCY_PHONE.
     let recipients = contacts;
     if (!recipients || recipients.length === 0) {
-      const isDev = process.env.NODE_ENV !== 'production';
+      const isDev = process.env.NODE_ENV === 'development';
       const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
       if (isDev && devTestPhone) {
         console.log(`[TwilioService] [DEV MODE ONLY] No user contacts. Using DEV_TEST_EMERGENCY_PHONE: ${maskPhoneNumber(devTestPhone)}`);
@@ -175,7 +175,7 @@ export class TwilioService {
     }
 
     if (!recipients || recipients.length === 0) {
-      const isDev = process.env.NODE_ENV !== 'production';
+      const isDev = process.env.NODE_ENV === 'development';
       const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
       if (isDev && devTestPhone) {
         console.log(`[TwilioService] [DEV MODE ONLY] No user contacts. Using DEV_TEST_EMERGENCY_PHONE for follow-up.`);

@@ -100,7 +100,7 @@ export async function dispatchTieredAlerts({ user, incident }) {
   if (score >= voiceCall || (isManual && score >= 70)) {
     console.log(`[ALERT CONFIG] Tier 2 Triggered: Score ${score}% >= ${voiceCall}%. Initiating voice calls.`);
     const contacts = user?.emergencyContacts || [];
-    const isDev = process.env.NODE_ENV !== 'production';
+    const isDev = process.env.NODE_ENV === 'development';
     const devTestPhone = process.env.DEV_TEST_EMERGENCY_PHONE;
 
     let voiceRecipients = contacts;

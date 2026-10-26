@@ -22,7 +22,7 @@ if (fs.existsSync(backendEnv)) {
  * In production mode, refuses to start if BACKEND_URL is missing or points to localhost.
  */
 export function validateEnvironment() {
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = process.env.NODE_ENV !== 'development';
 
   if (!process.env.JWT_SECRET) {
     console.error('\n🔴 [STARTUP ERROR] JWT_SECRET environment variable is missing.');
@@ -79,7 +79,7 @@ export function getBackendUrl(req = null) {
   }
 
   // 3. In production, fail hard if not configured
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV !== 'development') {
     throw new Error('[FATAL] BACKEND_URL environment variable is required in production.');
   }
 

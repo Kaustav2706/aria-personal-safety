@@ -193,7 +193,7 @@ export async function initializeDatabase() {
     console.log('💚 [POSTGRESQL DB] Database schema migration executed successfully.');
     client.release();
   } catch (error) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV !== 'development') {
       // In production a safety-critical service MUST NOT silently continue
       // without its database. Ephemeral disks (e.g. Render free tier) wipe
       // every local file on restart, so the file-based fallback would cause

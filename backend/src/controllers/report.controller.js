@@ -47,7 +47,7 @@ export async function streamReportForIncident(incidentId, req, res) {
   }
 
   // In production, strictly enforce authorization
-  if (!isAuthorized && process.env.NODE_ENV === 'production') {
+  if (!isAuthorized && process.env.NODE_ENV !== 'development') {
     return res.status(403).json({
       success: false,
       message: 'Access denied. You do not have permission to access this incident report.',

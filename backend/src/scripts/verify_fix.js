@@ -1,4 +1,7 @@
 import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
@@ -10,6 +13,11 @@ import { FirebaseService } from '../services/firebaseService.js';
 import { createIncident, MANUAL_SOS_RISK_SCORE } from '../controllers/incident.controller.js';
 import { triggerSOS } from '../controllers/alert.controller.js';
 import { AIService } from '../services/aiService.js';
+import { streamReportForIncident } from '../controllers/report.controller.js';
+import { getBackendUrl } from '../config/env.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Setup mock Firebase service
 FirebaseService.sendPoliceBroadcast = async (incident) => {
@@ -518,8 +526,150 @@ async function runTests() {
   }
   console.log('✓ N15 Test 5 Passed: Manual SOS with audio gets fixed high score when AI is unavailable (no random score).');
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5: N18 DEFAULT PRODUCTION SAFETY GUARDS VERIFICATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  console.log('\n[N18 Test 1] Verifying backend/Dockerfile specifies ENV NODE_ENV=production...');
+  const dockerfilePath = path.resolve(__dirname, '../../Dockerfile');
+  const dockerfileContent = fs.readFileSync(dockerfilePath, 'utf-8');
+  assert(dockerfileContent.includes('ENV NODE_ENV=production'), 'Dockerfile must define ENV NODE_ENV=production');
+  console.log('✓ N18 Test 1 Passed: backend/Dockerfile includes ENV NODE_ENV=production.');
+
+  console.log('[N18 Test 2] Testing Report Access Guard default behavior when NODE_ENV is unset/empty...');
+  const originalNodeEnv = process.env.NODE_ENV;
+  try {
+    delete process.env.NODE_ENV; // unset NODE_ENV
+    
+    // Attempt to download report without authorization when NODE_ENV is unset
+    let mockReq = { headers: {}, query: {} };
+    let mockStatus = null;
+    let mockJson = null;
+    let mockHeaders = {};
+    let mockRes = {
+      status: (code) => { mockStatus = code; return mockRes; },
+      json: (data) => { mockJson = data; return mockRes; },
+      setHeader: (k, v) => { mockHeaders[k] = v; }
+    };
+    await streamReportForIncident(validGpsIncident.id, mockReq, mockRes);
+    assert.strictEqual(mockStatus, 403, 'When NODE_ENV is unset, unauthorized report access must return 403 Forbidden');
+    assert.strictEqual(mockJson.error, 'Forbidden');
+    assert.strictEqual(mockJson.success, false);
+
+    // Staging or non-development environments must also deny unauthorized access
+    process.env.NODE_ENV = 'staging';
+    mockStatus = null;
+    await streamReportForIncident(validGpsIncident.id, mockReq, mockRes);
+    assert.strictEqual(mockStatus, 403, 'When NODE_ENV is staging, unauthorized report access must return 403 Forbidden');
+
+    // In development mode, unauthenticated access is permitted
+    process.env.NODE_ENV = 'development';
+    mockStatus = null;
+    let streamed = false;
+    const origStream = ReportService.streamIncidentPDF;
+    ReportService.streamIncidentPDF = () => { streamed = true; };
+    try {
+      await streamReportForIncident(validGpsIncident.id, mockReq, mockRes);
+      assert.strictEqual(mockStatus, null, 'In development mode, 403 should not be returned');
+      assert.strictEqual(streamed, true, 'In development mode, PDF stream should proceed');
+    } finally {
+      ReportService.streamIncidentPDF = origStream;
+    }
+    console.log('✓ N18 Test 2 Passed: Incident reports locked behind authorization by default (unless NODE_ENV === "development").');
+
+    console.log('[N18 Test 3] Testing DEV_TEST_EMERGENCY_PHONE is NEVER used when NODE_ENV is unset/production...');
+    process.env.DEV_TEST_EMERGENCY_PHONE = '+15550009999';
+    sentMessages.length = 0;
+    initiatedCalls.length = 0;
+
+    const userNoContacts = await User.create({
+      name: 'No Contacts User',
+      phone: '+15551112222',
+      email: `no-contacts-${Date.now()}@example.com`,
+      passwordHash: 'dummyhash',
+      emergencyContacts: []
+    });
+
+    // Case A: NODE_ENV is unset
+    delete process.env.NODE_ENV;
+    const smsResultUnset = await TwilioService.sendSOSAlert([], userNoContacts, validGpsIncident);
+    assert.strictEqual(smsResultUnset.success, false, 'sendSOSAlert must fail when no contacts configured');
+    assert.strictEqual(sentMessages.length, 0, 'Must NOT send SMS to DEV_TEST_EMERGENCY_PHONE when NODE_ENV is unset');
+
+    const followUpUnset = await TwilioService.sendLocationFollowUp([], userNoContacts, validGpsIncident, { latitude: 1, longitude: 1 });
+    assert.strictEqual(followUpUnset.success, false);
+    assert.strictEqual(sentMessages.length, 0, 'Must NOT send follow-up SMS to DEV_TEST_EMERGENCY_PHONE when NODE_ENV is unset');
+
+    const tieredUnset = await dispatchTieredAlerts({ user: userNoContacts, incident: validGpsIncident });
+    assert.strictEqual(initiatedCalls.length, 0, 'Must NOT initiate voice calls to DEV_TEST_EMERGENCY_PHONE when NODE_ENV is unset');
+
+    // Case B: NODE_ENV is 'production'
+    process.env.NODE_ENV = 'production';
+    await TwilioService.sendSOSAlert([], userNoContacts, validGpsIncident);
+    assert.strictEqual(sentMessages.length, 0, 'Must NOT send SMS to DEV_TEST_EMERGENCY_PHONE in production');
+
+    await dispatchTieredAlerts({ user: userNoContacts, incident: validGpsIncident });
+    assert.strictEqual(initiatedCalls.length, 0, 'Must NOT initiate voice calls to DEV_TEST_EMERGENCY_PHONE in production');
+
+    // Case C: NODE_ENV is 'development'
+    process.env.NODE_ENV = 'development';
+    const smsDevResult = await TwilioService.sendSOSAlert([], userNoContacts, validGpsIncident);
+    assert.strictEqual(sentMessages.length, 1, 'In development mode, DEV_TEST_EMERGENCY_PHONE should be used if contacts empty');
+    assert.strictEqual(sentMessages[0].to, '+15550009999');
+    sentMessages.length = 0;
+
+    await dispatchTieredAlerts({ user: userNoContacts, incident: validGpsIncident });
+    assert.strictEqual(initiatedCalls.length, 1, 'In development mode, voice call to DEV_TEST_EMERGENCY_PHONE is placed');
+    assert.strictEqual(initiatedCalls[0].to, '+15550009999');
+    initiatedCalls.length = 0;
+    console.log('✓ N18 Test 3 Passed: DEV_TEST_EMERGENCY_PHONE is strictly guarded and never dialed when NODE_ENV is unset or production.');
+
+    console.log('[N18 Test 4] Testing Localhost & BACKEND_URL guard defaults to production safety...');
+    const origBackendUrl = process.env.BACKEND_URL;
+    const origAppUrl = process.env.APP_URL;
+    try {
+      delete process.env.BACKEND_URL;
+      delete process.env.APP_URL;
+
+      // When NODE_ENV is unset, getBackendUrl() must fail hard because safety is default
+      delete process.env.NODE_ENV;
+      assert.throws(() => {
+        getBackendUrl();
+      }, /\[FATAL\] BACKEND_URL environment variable is required in production/, 'Must throw fatal error when BACKEND_URL is unset in default mode');
+
+      // When NODE_ENV is 'staging', also fails hard
+      process.env.NODE_ENV = 'staging';
+      assert.throws(() => {
+        getBackendUrl();
+      }, /\[FATAL\] BACKEND_URL environment variable is required in production/);
+
+      // In development mode, getBackendUrl() falls back to localhost:5000
+      process.env.NODE_ENV = 'development';
+      const devUrl = getBackendUrl();
+      assert.strictEqual(devUrl, 'http://localhost:5000', 'In development mode, fallback to localhost is permitted');
+    } finally {
+      if (origBackendUrl !== undefined) process.env.BACKEND_URL = origBackendUrl;
+      if (origAppUrl !== undefined) process.env.APP_URL = origAppUrl;
+    }
+    console.log('✓ N18 Test 4 Passed: BACKEND_URL guard requires production URL unless NODE_ENV === "development".');
+
+    console.log('[N18 Test 5] Testing Database connection guard treats non-development as fatal...');
+    // Verify db.js source code has flipped the logic
+    const dbJsPath = path.resolve(__dirname, '../config/db.js');
+    const dbJsContent = fs.readFileSync(dbJsPath, 'utf-8');
+    assert(dbJsContent.includes("if (process.env.NODE_ENV !== 'development')"), 'db.js must check process.env.NODE_ENV !== "development"');
+    assert(!dbJsContent.includes("if (process.env.NODE_ENV === 'production')"), 'db.js must NOT check process.env.NODE_ENV === "production"');
+    console.log('✓ N18 Test 5 Passed: Database failure refuses to silently fall back to in-memory store unless explicitly development.');
+
+  } finally {
+    if (originalNodeEnv !== undefined) {
+      process.env.NODE_ENV = originalNodeEnv;
+    } else {
+      delete process.env.NODE_ENV;
+    }
+  }
+
   console.log('\n============================================================');
-  console.log('ALL VERIFICATION SUITES (N12, N13, N14 & N15) PASSED SUCCESSFULLY!');
+  console.log('ALL VERIFICATION SUITES (N12, N13, N14, N15 & N18) PASSED SUCCESSFULLY!');
   console.log('============================================================');
   process.exit(0);
 }
