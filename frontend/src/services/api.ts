@@ -85,6 +85,7 @@ export const profileService = {
     name?: string;
     phone?: string;
     emergencyContacts?: Array<{ name: string; phone: string }>;
+    language?: string | null;
   }) => api.put('/api/user/profile', data),
 };
 

@@ -3,6 +3,23 @@ import { UserProfile } from '../types';
 import { Edit2, Globe, BellRing, Users, Database, LogOut, MapPin, Phone } from 'lucide-react';
 import { profileService } from '../services/api';
 
+const LANGUAGE_OPTIONS: { code: string | null; label: string }[] = [
+  { code: null, label: 'Auto-detect (recommended)' },
+  { code: 'hi', label: 'Hindi (हिन्दी)' },
+  { code: 'en', label: 'English' },
+  { code: 'bn', label: 'Bengali (বাংলা)' },
+  { code: 'ta', label: 'Tamil (தமிழ்)' },
+  { code: 'te', label: 'Telugu (తెలుగు)' },
+  { code: 'mr', label: 'Marathi (मराठी)' },
+  { code: 'gu', label: 'Gujarati (ગુજરાતી)' },
+  { code: 'pa', label: 'Punjabi (ਪੰਜਾਬੀ)' },
+  { code: 'ml', label: 'Malayalam (മലയാളം)' },
+  { code: 'kn', label: 'Kannada (ಕನ್ನಡ)' },
+  { code: 'or', label: 'Odia (ଓଡ଼ଆ)' },
+  { code: 'as', label: 'Assamese (অসমীয়া)' },
+  { code: 'sa', label: 'Sanskrit (संस्कृतम्)' },
+];
+
 interface ProfileViewProps {
   profile: UserProfile;
   onUpdateProfile: (updated: UserProfile) => void;
@@ -21,6 +38,7 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
   const [editGender, setEditGender] = useState(profile.gender || '');
   const [editAge, setEditAge] = useState<number | undefined>(profile.age);
   const [editHomeAddress, setEditHomeAddress] = useState(profile.homeAddress || '');
+  const [editLanguage, setEditLanguage] = useState<string | null>(profile.language || null);
 
   // Load profile from backend & merge localStorage overrides on mount
   useEffect(() => {
@@ -41,6 +59,9 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
             gender: parsedLocal.gender || profile.gender || '',
             age: parsedLocal.age !== undefined ? parsedLocal.age : profile.age,
             homeAddress: parsedLocal.homeAddress || profile.homeAddress || '',
+            language: parsedLocal.language !== undefined
+              ? parsedLocal.language
+              : (u.language !== undefined ? u.language : profile.language || null),
             notificationsEnabled: parsedLocal.notificationsEnabled !== undefined
               ? parsedLocal.notificationsEnabled
               : (profile.notificationsEnabled !== undefined ? profile.notificationsEnabled : true),
@@ -51,6 +72,7 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
           setEditGender(updated.gender || '');
           setEditAge(updated.age);
           setEditHomeAddress(updated.homeAddress || '');
+          setEditLanguage(updated.language || null);
           onUpdateProfile(updated);
         }
       } catch (err) {
@@ -65,12 +87,15 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
             setEditGender(parsed.gender || '');
             setEditAge(parsed.age);
             setEditHomeAddress(parsed.homeAddress || '');
+            setEditLanguage(parsed.language || null);
             onUpdateProfile(parsed);
           } catch {
             setLoadedProfile(profile);
+            setEditLanguage(profile.language || null);
           }
         } else {
           setLoadedProfile(profile);
+          setEditLanguage(profile.language || null);
         }
       } finally {
         setIsLoading(false);
@@ -87,6 +112,7 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
       gender: editGender,
       age: editAge ? Number(editAge) : undefined,
       homeAddress: editHomeAddress,
+      language: editLanguage,
     };
     onUpdateProfile(updated);
     setLoadedProfile(updated);
@@ -193,6 +219,24 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
                   />
                 </div>
 
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase tracking-widest text-primary/60 font-black pl-1">Voice Language</label>
+                  <select
+                    className="w-full h-10 bg-surface-container-lowest text-on-surface rounded-xl border border-white/10 px-2 text-xs focus:outline-none focus:border-primary"
+                    value={editLanguage || ''}
+                    onChange={(e) => setEditLanguage(e.target.value || null)}
+                  >
+                    {LANGUAGE_OPTIONS.map((opt) => (
+                      <option key={opt.code ?? 'auto'} value={opt.code ?? ''}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-on-surface-variant/50 mt-1 leading-tight">
+                    Used to hint Whisper during live monitoring &amp; manual SOS. Leave on Auto-detect to let the model identify the language from the recording.
+                  </p>
+                </div>
+
                 <div className="flex gap-3 pt-2">
                   <button 
                     type="button"
@@ -203,6 +247,7 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
                       setEditGender(loadedProfile.gender || '');
                       setEditAge(loadedProfile.age);
                       setEditHomeAddress(loadedProfile.homeAddress || '');
+                      setEditLanguage(loadedProfile.language || null);
                     }}
                     className="flex-1 h-10 rounded-xl bg-surface-container hover:bg-surface-container-high text-xs text-on-surface-variant font-bold cursor-pointer transition-colors active:scale-95"
                   >
@@ -273,9 +318,12 @@ export default function ProfileView({ profile, onUpdateProfile, onLogout, onLogo
                   </div>
                   <span className="font-semibold text-on-surface text-[15px]">Language Preference</span>
                 </div>
-                <span className="text-xs text-secondary font-black uppercase tracking-wider px-2.5 py-1 bg-secondary/10 border border-secondary/20 rounded-full select-none">
-                  English
-                </span>
+                <button
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="text-xs text-secondary font-black uppercase tracking-wider px-2.5 py-1 bg-secondary/10 border border-secondary/20 rounded-full select-none hover:bg-secondary/20 transition-colors cursor-pointer"
+                >
+                  {LANGUAGE_OPTIONS.find(o => (o.code ?? null) === (loadedProfile.language || null))?.label || 'Auto-detect'}
+                </button>
               </div>
             </div>
 

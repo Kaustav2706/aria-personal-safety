@@ -30,6 +30,7 @@ export interface UserProfile {
   age?: number;
   homeAddress?: string;
   notificationsEnabled?: boolean;
+  language?: string | null;
 }
 
 export interface EmergencyContact {

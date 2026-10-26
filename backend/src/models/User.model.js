@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { normalizePhoneNumber } from '../utils/phoneUtils.js';
 
 export class User {
-  static async create({ name, email, phone, passwordHash, role = 'user', emergencyContacts = [] }) {
+  static async create({ name, email, phone, passwordHash, role = 'user', emergencyContacts = [], language = null }) {
 
     const userId = crypto.randomUUID();
 
@@ -15,6 +15,7 @@ export class User {
         phone,
         passwordHash,
         role,
+        language: language || null,
         emergencyContacts: emergencyContacts.map(c => ({ name: c.name, phone: c.phone })),
         createdAt: new Date().toISOString()
       };
@@ -34,11 +35,11 @@ export class User {
       await client.query('BEGIN');
 
       const insertUserQuery = `
-        INSERT INTO users (id, name, email, phone, password_hash, role)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, name, email, phone, role, created_at as "createdAt"
+        INSERT INTO users (id, name, email, phone, password_hash, role, language)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, email, phone, role, language, created_at as "createdAt"
       `;
-      const userRes = await client.query(insertUserQuery, [userId, name, email, phone, passwordHash, role]);
+      const userRes = await client.query(insertUserQuery, [userId, name, email, phone, passwordHash, role, language || null]);
       const user = userRes.rows[0];
 
       const savedContacts = [];
@@ -94,6 +95,7 @@ export class User {
         phone: user.phone,
         passwordHash: user.password_hash,
         role: user.role || 'user',
+        language: user.language || null,
         emergencyContacts: contactsRes.rows,
         createdAt: user.created_at
       };
@@ -129,6 +131,7 @@ export class User {
         phone: user.phone,
         passwordHash: user.password_hash,
         role: user.role || 'user',
+        language: user.language || null,
         emergencyContacts: contactsRes.rows,
         createdAt: user.created_at
       };
@@ -145,6 +148,7 @@ export class User {
 
       if (updates.name) memoryStore.users[idx].name = updates.name;
       if (updates.phone) memoryStore.users[idx].phone = updates.phone;
+      if (updates.language !== undefined) memoryStore.users[idx].language = updates.language || null;
 
       if (updates.emergencyContacts) {
         // Delete contacts
@@ -180,6 +184,10 @@ export class User {
         fields.push(`phone = $${valIdx++}`);
         values.push(updates.phone);
       }
+      if (updates.language !== undefined) {
+        fields.push(`language = $${valIdx++}`);
+        values.push(updates.language || null);
+      }
 
       let user = null;
       if (fields.length > 0) {
@@ -188,12 +196,12 @@ export class User {
           UPDATE users 
           SET ${fields.join(', ')} 
           WHERE id = $${valIdx} 
-          RETURNING id, name, email, phone, created_at as "createdAt"
+          RETURNING id, name, email, phone, role, language, created_at as "createdAt"
         `;
         const userRes = await client.query(updateQuery, values);
         user = userRes.rows[0];
       } else {
-        const userRes = await client.query('SELECT id, name, email, phone, created_at as "createdAt" FROM users WHERE id = $1', [id]);
+        const userRes = await client.query('SELECT id, name, email, phone, role, language, created_at as "createdAt" FROM users WHERE id = $1', [id]);
         user = userRes.rows[0];
       }
 

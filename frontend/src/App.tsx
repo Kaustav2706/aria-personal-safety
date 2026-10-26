@@ -137,6 +137,7 @@ export default function App() {
           avatar: defaultProfile.avatar,
           phone: u.phone || '',
           emergencyPhone: u.phone || '',
+          language: u.language || null,
         };
         const local = localStorage.getItem('aria_user_profile_overrides');
         if (local) {
@@ -148,6 +149,7 @@ export default function App() {
               name: parsed.name || base.name,
               email: parsed.email || base.email,
               phone: parsed.phone || base.phone,
+              language: parsed.language !== undefined ? parsed.language : base.language,
             });
           } catch {}
         } else {
@@ -367,6 +369,7 @@ export default function App() {
       await profileService.updateProfile({
         name: updated.name,
         phone: updated.phone || updated.emergencyPhone,
+        language: updated.language === undefined ? undefined : (updated.language || null),
       });
     } catch (err) {
       console.warn('[APP] Failed to sync profile updates to backend:', err);
@@ -827,6 +830,7 @@ export default function App() {
               setCurrentScreen('SOS_ACTIVE');
             }}
             onTriggerSOS={handleTriggerSOS}
+            language={profile.language || null}
           />
         )}
 

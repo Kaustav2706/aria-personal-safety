@@ -98,6 +98,18 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     });
   }
 
+  // 1a. Resolve the user's preferred language from their profile.
+  //     Fall back to the client-supplied hint, then pass nothing so the AI
+  //     engine lets Whisper auto-detect — never silently force English.
+  let profileLanguage = null;
+  try {
+    const user = await User.findById(userId);
+    if (user && user.language) profileLanguage = user.language;
+  } catch (err) {
+    console.warn(`[MONITORING] Could not load user profile for language lookup:`, err.message);
+  }
+  const effectiveLanguage = profileLanguage || language || null;
+
   // 2. Touch session activity if sessionId is provided
   if (sessionId) {
     try {
@@ -117,7 +129,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     longitude: parseFloat(longitude) || 0.0,
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
-    language: language || 'en',
+    language: effectiveLanguage,
     timeoutMs: 30000
   });
 

@@ -28,7 +28,7 @@ export const createIncident = asyncHandler(async (req, res) => {
   const incidentLat = isLocationUnavailable ? null : (parseFloat(latitude) || null);
   const incidentLng = isLocationUnavailable ? null : (parseFloat(longitude) || null);
 
-  const isManual = !triggerType || triggerType === 'manual';
+const isManual = !triggerType || triggerType === 'manual';
   const effectiveTriggerType = isManual ? 'manual' : triggerType;
 
   const user = await User.findById(userId);
@@ -44,7 +44,7 @@ export const createIncident = asyncHandler(async (req, res) => {
   let finalRiskScore = isManual ? MANUAL_SOS_RISK_SCORE : 50;
   let analysisAvailable = true;
   let audioUrl = null;
-  
+   
   // 1. Process voice audio file upload if present
   if (req.file) {
     console.log(`[INCIDENT CONTROLLER] Audio file received: ${req.file.originalname}`);
@@ -55,8 +55,9 @@ export const createIncident = asyncHandler(async (req, res) => {
       longitude: incidentLng || 0.0,
       isIsolated: isIsolated === 'true' || isIsolated === true,
       motionAnomaly: hasMotionAnomaly,
-      // Let Whisper identify the spoken language from the recording.
-      language: null
+      // Pass the user's preferred language so Whisper doesn't silently fall back to English.
+      // null/undefined => let Whisper auto-detect from the recording.
+      language: user.language || null
     });
 
     analysisAvailable = analysis.available;
