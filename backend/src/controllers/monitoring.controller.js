@@ -36,7 +36,7 @@ async function findCooldownIncident(userId) {
         return parsed;
       } else {
         // Stale cooldown from resolved or cancelled incident — clear it
-        try { await redisDel(redisKey); } catch {}
+        try { await redisDel(redisKey); } catch { }
       }
     }
   } catch (err) {
