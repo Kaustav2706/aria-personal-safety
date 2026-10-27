@@ -1,5 +1,6 @@
 import { Incident } from '../models/Incident.model.js';
 import { User } from '../models/User.model.js';
+import { AuthSession } from '../models/AuthSession.model.js';
 import { TwilioService } from '../services/twilioService.js';
 import jwt from 'jsonwebtoken';
 
@@ -11,8 +12,8 @@ export function setupLiveTracking(io) {
   // ── JWT Handshake Middleware ──────────────────────────────────────────────
   // Clients must pass their JWT as: socket.auth = { token: '<jwt>' }
   // or as the Authorization header: authorization: 'Bearer <jwt>'
-  // Connection is rejected before any events fire if the token is missing/invalid.
-  io.use((socket, next) => {
+  // Connection is rejected before any events fire if the token is missing/invalid or session is revoked.
+  io.use(async (socket, next) => {
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(' ')[1] ||
@@ -24,6 +25,15 @@ export function setupLiveTracking(io) {
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
+
+      // Verify session is still active and not revoked, matching HTTP middleware
+      if (decoded.sessionId) {
+        const session = await AuthSession.findActiveById(decoded.sessionId);
+        if (!session || session.userId !== decoded.userId) {
+          return next(new Error('Authentication failed: session revoked or expired'));
+        }
+      }
+
       // Attach verified identity to socket — available in all event handlers
       socket.user = {
         id: decoded.userId,

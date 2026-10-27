@@ -45,7 +45,7 @@ export function createPoliceSocket() {
     reconnectionDelayMax: 5000,
     timeout: 20000,
     transports: ['websocket', 'polling'],
-    auth: { token: getToken() }
+    auth: (cb) => cb({ token: getToken() })
   });
 
   socket.on('connect_error', (err) => {

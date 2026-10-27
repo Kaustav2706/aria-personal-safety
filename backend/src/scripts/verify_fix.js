@@ -9,6 +9,9 @@ import { ReportService } from '../services/reportService.js';
 import { TwilioService } from '../services/twilioService.js';
 import { TwilioVoiceService } from '../services/twilioVoiceService.js';
 import { FirebaseService } from '../services/firebaseService.js';
+import jwt from 'jsonwebtoken';
+import { AuthSession } from '../models/AuthSession.model.js';
+import { setupLiveTracking } from '../sockets/liveTracking.js';
 
 import { createIncident, MANUAL_SOS_RISK_SCORE } from '../controllers/incident.controller.js';
 import { triggerSOS } from '../controllers/alert.controller.js';
@@ -660,6 +663,137 @@ async function runTests() {
     assert(!dbJsContent.includes("if (process.env.NODE_ENV === 'production')"), 'db.js must NOT check process.env.NODE_ENV === "production"');
     console.log('✓ N18 Test 5 Passed: Database failure refuses to silently fall back to in-memory store unless explicitly development.');
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 6: N17 USER NAME TWIML XML ESCAPING & HIJACKING PREVENTION
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log('\n[N17 Test 1] Testing user name with ampersand ("Priya & family") is properly XML-escaped...');
+    initiatedCalls.length = 0;
+    const ampersandUser = {
+      id: 'test-ampersand-user',
+      name: 'Priya & family',
+      phone: '+15551234567'
+    };
+    await TwilioVoiceService.makeEmergencyCall('+15559876543', ampersandUser, validGpsIncident);
+    assert.strictEqual(initiatedCalls.length, 1, 'Call must be initiated');
+    const ampersandCall = initiatedCalls[0];
+    assert(ampersandCall.twiml.includes('Priya &amp; family'), 'TwiML must escape ampersand as &amp;');
+    assert(!ampersandCall.twiml.includes('Priya & family'), 'TwiML must NOT contain raw unescaped ampersand');
+    console.log('✓ N17 Test 1 Passed: Ampersand in user name is safely escaped as &amp;');
+
+    console.log('[N17 Test 2] Testing user name with XML injection / hijack payload is neutralized...');
+    initiatedCalls.length = 0;
+    const maliciousUser = {
+      id: 'test-malicious-user',
+      name: 'Attacker</Say><Dial>+15559999999</Dial><Say>',
+      phone: '+15551234567'
+    };
+    await TwilioVoiceService.makeEmergencyCall('+15559876543', maliciousUser, validGpsIncident);
+    assert.strictEqual(initiatedCalls.length, 1, 'Call must be initiated');
+    const maliciousCall = initiatedCalls[0];
+    assert(maliciousCall.twiml.includes('&lt;/Say&gt;&lt;Dial&gt;+15559999999&lt;/Dial&gt;&lt;Say&gt;'), 'XML tags must be escaped as entities');
+    assert(!maliciousCall.twiml.includes('<Dial>'), 'TwiML must NOT contain injected <Dial> element');
+    const sayClosingTagCount = (maliciousCall.twiml.match(/<\/Say>/g) || []).length;
+    assert.strictEqual(sayClosingTagCount, 1, 'TwiML must contain exactly one </Say> closing tag');
+    console.log('✓ N17 Test 2 Passed: XML tag injection in user name is completely neutralized and cannot hijack call');
+
+    console.log('[N17 Test 3] Verifying twilioVoiceService uses Twilio VoiceResponse builder...');
+    const voiceServicePath = path.resolve(__dirname, '../services/twilioVoiceService.js');
+    const voiceServiceContent = fs.readFileSync(voiceServicePath, 'utf-8');
+    assert(voiceServiceContent.includes('new twilio.twiml.VoiceResponse()'), 'twilioVoiceService.js must use twilio.twiml.VoiceResponse()');
+    assert(!voiceServiceContent.includes('<Response><Say'), 'twilioVoiceService.js must NOT construct raw <Response><Say> XML strings');
+    console.log('✓ N17 Test 3 Passed: Twilio VoiceResponse builder is used instead of raw template string');
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 7: N22 LIVE TRACKING RECONNECTION & SESSION REVOCATION HANDSHAKE
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log('\n[N22 Test 1] Verifying frontend socket.ts passes auth as a dynamic callback function...');
+    const clientSocketTs = fs.readFileSync(path.resolve(__dirname, '../../../frontend/src/services/socket.ts'), 'utf-8');
+    assert(clientSocketTs.includes('auth: (cb'), 'frontend socket.ts must provide auth as a function (cb) => ...');
+    assert(!clientSocketTs.includes('auth: { token }'), 'frontend socket.ts must not pass static { token }');
+    console.log('✓ N22 Test 1 Passed: Frontend socket uses callback so every reconnect reads the latest token.');
+
+    console.log('[N22 Test 2] Verifying police-dashboard api.js passes auth as a dynamic callback function...');
+    const policeApiJs = fs.readFileSync(path.resolve(__dirname, '../../../police-dashboard/src/api.js'), 'utf-8');
+    assert(policeApiJs.includes('auth: (cb) => cb({ token: getToken() })'), 'police-dashboard api.js must provide auth as a callback function');
+    assert(!policeApiJs.includes('auth: { token: getToken() }'), 'police-dashboard api.js must not pass static { token: getToken() }');
+    console.log('✓ N22 Test 2 Passed: Police dashboard socket uses callback for live token renewal.');
+
+    console.log('[N22 Test 3] Testing server socket handshake accepts active session and rejects revoked/expired session...');
+    let handshakeMiddleware = null;
+    const mockIo = {
+      use: (fn) => { handshakeMiddleware = fn; },
+      on: () => {}
+    };
+    setupLiveTracking(mockIo);
+    assert(typeof handshakeMiddleware === 'function', 'setupLiveTracking must register handshake middleware on io');
+
+    const jwtSecret = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
+
+    // 1. Create an active session and token
+    const testSession = await AuthSession.create({
+      userId: testUser.id,
+      refreshTokenHash: `hash_test_n22_session_${Date.now()}_${Math.random()}`,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    });
+    const validSessionToken = jwt.sign(
+      { userId: testUser.id, sessionId: testSession.id, role: 'user' },
+      jwtSecret,
+      { expiresIn: '1h' }
+    );
+
+    const mockSocket = {
+      handshake: {
+        auth: { token: validSessionToken }
+      }
+    };
+
+    let activeHandshakeErr = null;
+    await handshakeMiddleware(mockSocket, (err) => { activeHandshakeErr = err; });
+    assert.strictEqual(activeHandshakeErr, undefined, 'Active session must be accepted during handshake');
+    assert.strictEqual(mockSocket.user.id, testUser.id);
+    assert.strictEqual(mockSocket.user.sessionId, testSession.id);
+    console.log('✓ N22 Test 3a Passed: Valid active session successfully accepted during socket handshake.');
+
+    // 2. Revoke the session and verify socket handshake rejects it
+    await AuthSession.revoke(testSession.id);
+
+    let revokedHandshakeErr = null;
+    const mockRevokedSocket = {
+      handshake: {
+        auth: { token: validSessionToken }
+      }
+    };
+    await handshakeMiddleware(mockRevokedSocket, (err) => { revokedHandshakeErr = err; });
+    assert(revokedHandshakeErr instanceof Error, 'Handshake must fail with Error when session is revoked');
+    assert(
+      revokedHandshakeErr.message.includes('revoked or expired'),
+      `Error message must indicate revoked or expired session, got: "${revokedHandshakeErr?.message}"`
+    );
+    console.log('✓ N22 Test 3b Passed: Revoked session is rejected during socket handshake.');
+
+    // 3. Renewed token with new active session connects cleanly
+    const renewedSession = await AuthSession.create({
+      userId: testUser.id,
+      refreshTokenHash: `hash_test_n22_renewed_${Date.now()}_${Math.random()}`,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    });
+    const renewedToken = jwt.sign(
+      { userId: testUser.id, sessionId: renewedSession.id, role: 'user' },
+      jwtSecret,
+      { expiresIn: '1h' }
+    );
+
+    let renewedHandshakeErr = null;
+    const mockRenewedSocket = {
+      handshake: {
+        auth: { token: renewedToken }
+      }
+    };
+    await handshakeMiddleware(mockRenewedSocket, (err) => { renewedHandshakeErr = err; });
+    assert.strictEqual(renewedHandshakeErr, undefined, 'Renewed session token must be accepted on reconnect');
+    assert.strictEqual(mockRenewedSocket.user.sessionId, renewedSession.id);
+    console.log('✓ N22 Test 3c Passed: Reconnecting with renewed session succeeds seamlessly.');
+
   } finally {
     if (originalNodeEnv !== undefined) {
       process.env.NODE_ENV = originalNodeEnv;
@@ -669,7 +803,7 @@ async function runTests() {
   }
 
   console.log('\n============================================================');
-  console.log('ALL VERIFICATION SUITES (N12, N13, N14, N15 & N18) PASSED SUCCESSFULLY!');
+  console.log('ALL VERIFICATION SUITES (N12, N13, N14, N15, N17, N18 & N22) PASSED SUCCESSFULLY!');
   console.log('============================================================');
   process.exit(0);
 }

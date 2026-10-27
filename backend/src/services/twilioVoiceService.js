@@ -47,10 +47,12 @@ export class TwilioVoiceService {
       ? `The incident location is latitude ${incident.latitude}, longitude ${incident.longitude}.`
       : `Location unavailable — call her directly.`;
 
-    // Spoken message TwiML construct
+    // Spoken message TwiML construct built using Twilio VoiceResponse to escape user inputs safely
     const speakMessage = `Emergency alert from ARIA. A critical threat has been triggered for user ${user?.name || 'Unknown User'}. The threat risk level is ${incident?.riskScore || 0} percent. The trigger type is ${incident?.triggerType || 'unknown'}. ${locationPhrase} Please respond immediately.`;
 
-    const twimlContent = `<Response><Say voice="alice" language="en-US">${speakMessage}</Say></Response>`;
+    const response = new twilio.twiml.VoiceResponse();
+    response.say({ voice: 'alice', language: 'en-US' }, speakMessage);
+    const twimlContent = response.toString();
 
     try {
       console.log(`[TwilioVoiceService] Dispatching client.calls.create to: ${masked}`);

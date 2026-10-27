@@ -113,9 +113,17 @@ export interface ChunkAnalysis {
   transcript: string;
   riskScore: number;
   autoIncident: {
+    id?: string;
     incidentId: string;
     riskScore: number;
     triggerType: string;
+    audioTranscript?: string;
+    audioUrl?: string;
+    status?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    createdAt?: string;
+    reused?: boolean;
   } | null;
 }
 

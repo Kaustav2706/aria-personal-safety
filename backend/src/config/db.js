@@ -100,14 +100,15 @@ export async function initializeDatabase() {
       END $$;
 
       -- Idempotent migration: add language column (BCP-47 code, e.g. 'hi', 'en')
-      -- Used to pass an explicit language hint to Whisper instead of auto-detecting
-      -- on short audio clips, which is unreliable. Defaults to 'hi' (ARIA's primary locale).
+      -- Allows NULL so Whisper can auto-detect when preferred.
       DO $$ BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_name='users' AND column_name='language'
         ) THEN
-          ALTER TABLE users ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'hi';
+          ALTER TABLE users ADD COLUMN language VARCHAR(10) DEFAULT NULL;
+        ELSE
+          ALTER TABLE users ALTER COLUMN language DROP NOT NULL;
         END IF;
       END $$;
 

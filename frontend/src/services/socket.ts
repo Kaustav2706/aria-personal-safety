@@ -16,15 +16,15 @@ let socket: Socket | null = null;
 export function connectSocket(): Socket {
   if (socket?.connected) return socket;
 
-  const token = getToken();
-
   socket = io(SOCKET_URL, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 2000,
-    // Send JWT in the handshake so the server can authenticate at connection time
-    auth: { token },
+    // Pass the token as a function so every reconnect reads the current renewed token
+    auth: (cb: (data: { token: string | null }) => void) => {
+      cb({ token: getToken() });
+    },
   });
 
   socket.on('connect', () => {

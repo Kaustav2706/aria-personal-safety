@@ -423,13 +423,14 @@ export default function App() {
     coords?: { lat: number; lng: number } | null,
     audioBlob?: Blob | null
   ) => {
+    let latitude: number | null = null;
+    let longitude: number | null = null;
+    let locationUnavailable: boolean = false;
+
     try {
       // Get current GPS — attempt a fresh fix, but never invent coordinates.
       // If GPS is unavailable, we send location_unavailable=true so the backend
       // and police dashboard show "location unknown" rather than a wrong pin.
-      let latitude: number | null = null;
-      let longitude: number | null = null;
-
       if (coords) {
         latitude = coords.lat;
         longitude = coords.lng;
@@ -445,7 +446,7 @@ export default function App() {
         }
       }
 
-      const locationUnavailable = latitude === null || longitude === null;
+      locationUnavailable = latitude === null || longitude === null;
 
       const formData = new FormData();
       formData.append('latitude', (latitude ?? 0).toString());
