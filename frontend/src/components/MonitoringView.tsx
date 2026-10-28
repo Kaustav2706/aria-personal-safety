@@ -538,35 +538,20 @@ export default function MonitoringView({
       setAiAvailable(true);
 
       if (data.success) {
-        lastBackendConfidenceRef.current = data.confidence;
-        setConfidence(data.confidence);
-        confidenceRef.current = data.confidence;
-        setRiskScore(data.riskScore);
-        if (data.transcript && data.transcript.trim()) {
-          transcriptRef.current = data.transcript.trim();
-          setTranscript(data.transcript.trim());
-        }
-        setDistressDetected(data.distress);
-        setChunkCount((prev) => prev + 1);
-        onRiskScoreChange(data.riskScore);
-
-        // Append the real backend risk score to the chart history (max 20 points)
-        setRiskHistory((prev) => {
-          const next = [...prev, data.riskScore];
-          return next.length > 20 ? next.slice(next.length - 20) : next;
-        });
-
-        setLastUploadOk(true);
-
-        // Automatic SOS trigger when monitor reaches 70
-        if ((data.confidence >= 70 || data.riskScore >= 70) && !autoSosTriggeredRef.current && isMonitoringActiveRef.current) {
-          triggerAutoSOS(`AI analysis: confidence ${data.confidence}%, risk score ${data.riskScore}%`);
-          return;
-        }
-
-        // If auto-incident was created
+        // If auto-incident was created by backend: switch to active-SOS screen for that incident.
+        // One place decides (backend); the other displays (frontend). Do NOT create a second incident.
         if (data.autoIncident) {
           console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
+
+          // Mark auto-SOS as triggered to prevent any other timers or volume-level callbacks from firing
+          autoSosTriggeredRef.current = true;
+          isMonitoringActiveRef.current = false;
+
+          // Immediately cancel volume tracking animation frame
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+          }
 
           if (speechRecognitionRef.current) {
             try { speechRecognitionRef.current.stop(); } catch {}
@@ -574,12 +559,14 @@ export default function MonitoringView({
           }
 
           // Synchronously release audio/mic tracks immediately
-          isMonitoringActiveRef.current = false;
           if (chunkTimerRef.current) {
             clearTimeout(chunkTimerRef.current);
             chunkTimerRef.current = null;
           }
-          if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+          if (durationIntervalRef.current) {
+            clearInterval(durationIntervalRef.current);
+            durationIntervalRef.current = null;
+          }
           if (mediaRecorderRef.current?.state === 'recording') {
             try { mediaRecorderRef.current.stop(); } catch {}
           }
@@ -600,20 +587,40 @@ export default function MonitoringView({
             monitoringService.stopSession(sid).catch(() => {});
           }
 
-          // Trigger SOS screen transition immediately
+          // Trigger SOS screen transition immediately using the backend autoIncident
           onIncidentCreated({
             id: data.autoIncident.id || data.autoIncident.incidentId,
             userId: '',
             status: 'active',
             triggerType: data.autoIncident.triggerType || 'monitoring',
-            latitude: currentFix?.lat ?? null,
-            longitude: currentFix?.lng ?? null,
+            latitude: data.autoIncident.latitude ?? currentFix?.lat ?? null,
+            longitude: data.autoIncident.longitude ?? currentFix?.lng ?? null,
             riskScore: data.autoIncident.riskScore,
             audioTranscript: data.autoIncident.audioTranscript || data.transcript,
             createdAt: data.autoIncident.createdAt || new Date().toISOString(),
           });
           return;
         }
+
+        lastBackendConfidenceRef.current = data.confidence;
+        setConfidence(data.confidence);
+        confidenceRef.current = data.confidence;
+        setRiskScore(data.riskScore);
+        if (data.transcript && data.transcript.trim()) {
+          transcriptRef.current = data.transcript.trim();
+          setTranscript(data.transcript.trim());
+        }
+        setDistressDetected(data.distress);
+        setChunkCount((prev) => prev + 1);
+        onRiskScoreChange(data.riskScore);
+
+        // Append the real backend risk score to the chart history (max 20 points)
+        setRiskHistory((prev) => {
+          const next = [...prev, data.riskScore];
+          return next.length > 20 ? next.slice(next.length - 20) : next;
+        });
+
+        setLastUploadOk(true);
       }
     } catch (err: any) {
       console.warn('[MONITORING] Chunk upload failed:', err.message);
