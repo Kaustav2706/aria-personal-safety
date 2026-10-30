@@ -157,7 +157,10 @@ export const updateLocation = asyncHandler(async (req, res) => {
 
 export const callEmergencyContact = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { incidentId, contactPhone } = req.body;
+  const { incidentId } = req.body;
+  // NOTE: contactPhone is intentionally ignored — we only dial the caller's
+  // own saved emergency contacts to prevent this endpoint being used as a
+  // harassment / arbitrary-dialling tool.
 
   const user = await User.findById(userId);
   if (!user) {
@@ -169,22 +172,23 @@ export const callEmergencyContact = asyncHandler(async (req, res) => {
     try {
       incident = await Incident.findById(incidentId);
     } catch {}
+
+    // Verify the incident belongs to the caller before reading its data
+    if (incident && String(incident.userId) !== String(userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not own this incident.',
+        error: 'Forbidden'
+      });
+    }
   }
   if (!incident) {
     incident = { id: incidentId || 'priority-call', riskScore: 90, triggerType: 'manual_call' };
   }
 
-  // Compile list of unique emergency contacts to dial
+  // Only dial contacts that are already saved on the user's own profile
   const phoneSet = new Set();
   const contactsToDial = [];
-
-  if (contactPhone) {
-    const norm = normalizePhoneNumber(contactPhone);
-    if (norm) {
-      phoneSet.add(norm);
-      contactsToDial.push({ name: 'Emergency Contact', phone: norm });
-    }
-  }
 
   if (Array.isArray(user.emergencyContacts) && user.emergencyContacts.length > 0) {
     for (const c of user.emergencyContacts) {
@@ -197,7 +201,10 @@ export const callEmergencyContact = asyncHandler(async (req, res) => {
   }
 
   if (contactsToDial.length === 0) {
-    return res.status(400).json({ success: false, message: 'No emergency contact phone number available' });
+    return res.status(400).json({
+      success: false,
+      message: 'No saved emergency contacts found on your profile. Add contacts before triggering a call.'
+    });
   }
 
   console.log(`[ALERT CONTROLLER] Placing priority voice call(s) to ${contactsToDial.length} contact(s) for user ${user.name}`);
