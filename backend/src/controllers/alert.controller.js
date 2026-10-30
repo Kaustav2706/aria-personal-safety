@@ -157,10 +157,10 @@ export const updateLocation = asyncHandler(async (req, res) => {
 
 export const callEmergencyContact = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const { incidentId } = req.body;
-  // NOTE: contactPhone is intentionally ignored — we only dial the caller's
-  // own saved emergency contacts to prevent this endpoint being used as a
-  // harassment / arbitrary-dialling tool.
+  const { incidentId, contactPhone } = req.body;
+  // Restrict dialling strictly to the caller's saved emergency contacts.
+
+
 
   const user = await User.findById(userId);
   if (!user) {
@@ -205,6 +205,21 @@ export const callEmergencyContact = asyncHandler(async (req, res) => {
       success: false,
       message: 'No saved emergency contacts found on your profile. Add contacts before triggering a call.'
     });
+  }
+
+  // If a specific contact was targeted, verify it exists in saved contacts and dial ONLY that contact
+  if (contactPhone) {
+    const normTarget = normalizePhoneNumber(contactPhone);
+    const matchingContact = contactsToDial.find(c => c.phone === normTarget);
+    if (!matchingContact) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Target phone number is not registered in your emergency contacts.',
+        error: 'Forbidden'
+      });
+    }
+    contactsToDial.length = 0;
+    contactsToDial.push(matchingContact);
   }
 
   console.log(`[ALERT CONTROLLER] Placing priority voice call(s) to ${contactsToDial.length} contact(s) for user ${user.name}`);
