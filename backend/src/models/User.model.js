@@ -205,6 +205,11 @@ export class User {
         user = userRes.rows[0];
       }
 
+      if (!user) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
       if (updates.emergencyContacts) {
         await client.query('DELETE FROM emergency_contacts WHERE user_id = $1', [id]);
 
