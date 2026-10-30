@@ -31,7 +31,9 @@ export class TwilioService {
       ? `Location: https://maps.google.com/?q=${incident.latitude},${incident.longitude}.`
       : `Location unavailable — call her directly.`;
 
-    const message = `ALERT: ${user.name} has triggered an SOS event! ${locationText} Live risk level: ${incident.riskScore}%. Please check on them immediately.`;
+    const userName = user?.name || 'User';
+    const riskScore = incident?.riskScore ?? 0;
+    const message = `ALERT: ${userName} has triggered an SOS event! ${locationText} Live risk level: ${riskScore}%. Please check on them immediately.`;
 
     // Guard: Do not send SMS if user has no contacts configured.
     // In development mode only, a test recipient can be specified via DEV_TEST_EMERGENCY_PHONE.
