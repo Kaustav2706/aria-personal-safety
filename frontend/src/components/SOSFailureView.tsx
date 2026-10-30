@@ -132,7 +132,10 @@ export default function SOSFailureView({
           {/* Secondary Contact Direct Call */}
           {primaryContactPhone && (
             <a
-              href={`tel:${primaryContactPhone.startsWith('+') ? primaryContactPhone : (primaryContactPhone.length === 10 ? `+91${primaryContactPhone}` : primaryContactPhone)}`}
+              href={`tel:${(() => {
+                const clean = primaryContactPhone.replace(/[^\d+]/g, '');
+                return clean.startsWith('+') ? clean : (clean.length === 10 ? `+91${clean}` : clean);
+              })()}`}
               className="w-full h-14 px-5 bg-surface-container-high hover:bg-surface-container-highest active:scale-[0.98] text-on-surface rounded-xl font-bold text-sm flex items-center justify-between border border-white/10 transition-all cursor-pointer"
             >
               <div className="flex items-center gap-3">
