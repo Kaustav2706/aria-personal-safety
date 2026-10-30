@@ -45,6 +45,20 @@ export const register = asyncHandler(async (req, res) => {
     });
   }
 
+  // Authorize police dispatcher role registration
+  if (role === 'police' && process.env.NODE_ENV === 'production') {
+    const policeSecret = process.env.POLICE_REGISTRATION_SECRET;
+    const inviteCode = req.body?.inviteCode || req.headers?.['x-police-invite-code'];
+    const isGovEmail = typeof email === 'string' && (email.toLowerCase().endsWith('.gov') || email.toLowerCase().endsWith('.gov.in') || email.toLowerCase().endsWith('.police.gov'));
+    if (!((policeSecret && inviteCode === policeSecret) || isGovEmail)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Police dispatcher registration requires an authorized government email (.gov / .gov.in) or valid dispatcher invitation code.',
+        error: 'Forbidden'
+      });
+    }
+  }
+
   // Check if user exists
   const existingUser = await User.findByEmail(email);
   if (existingUser) {
