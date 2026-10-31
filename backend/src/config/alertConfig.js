@@ -43,10 +43,10 @@ export function getAlertThresholds() {
  * @param {object} params.incident - Incident record with riskScore and triggerType
  * @returns {Promise<{ smsDispatched: boolean, voiceCallsDispatched: boolean, policeBroadcasted: boolean }>}
  */
-export async function dispatchTieredAlerts({ user, incident }) {
+export async function dispatchTieredAlerts({ user, incident, manualConfirmed = false }) {
   const { sms, voiceCall, police } = getAlertThresholds();
   const score = parseInt(incident.riskScore, 10) || 0;
-  const isManual = incident.triggerType === 'manual';
+  const isManual = manualConfirmed || incident.manualConfirmed === true || incident.triggerType === 'manual';
 
   const results = {
     smsDispatched: false,

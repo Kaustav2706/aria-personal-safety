@@ -13,8 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download and bake speech model weights into the container image during build.
 # This eliminates cold-start download delays and removes third-party runtime dependencies.
-ENV WHISPER_MODEL_DIR=/app/models/whisper-small
-RUN python -c "from faster_whisper import download_model; download_model('small', output_dir='/app/models/whisper-small')"
+ENV WHISPER_MODEL_NAME=base
+ENV WHISPER_MODEL_DIR=/app/models/whisper-base
+RUN python -c "from faster_whisper import download_model; download_model('base', output_dir='/app/models/whisper-base')"
 
 COPY . .
 

@@ -22,13 +22,16 @@ CREATE TABLE IF NOT EXISTS emergency_contacts (
 CREATE TABLE IF NOT EXISTS incidents (
   id VARCHAR(50) PRIMARY KEY,
   user_id VARCHAR(50) REFERENCES users(id) ON DELETE SET NULL,
-  status VARCHAR(20) DEFAULT 'active', -- 'active' or 'resolved'
+  status VARCHAR(20) DEFAULT 'active', -- includes pending_dispatch, dispatching, active, cancelled, resolved
   trigger_type VARCHAR(20) DEFAULT 'manual', -- 'manual', 'audio', 'motion'
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
   risk_score INTEGER DEFAULT 0,
   audio_transcript TEXT,
   audio_url TEXT,
+  dispatch_after TIMESTAMPTZ,
+  dispatch_claimed_at TIMESTAMPTZ,
+  manual_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -80,3 +83,10 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 
 ALTER TABLE incidents ALTER COLUMN latitude DROP NOT NULL;
 ALTER TABLE incidents ALTER COLUMN longitude DROP NOT NULL;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS dispatch_after TIMESTAMPTZ;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS manual_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS incidents_pending_dispatch_idx
+  ON incidents (dispatch_after)
+  WHERE status IN ('pending_dispatch', 'dispatching');

@@ -48,36 +48,40 @@ const isManual = !triggerType || triggerType === 'manual';
   // 1. Process voice audio file upload if present
   if (req.file) {
     console.log(`[INCIDENT CONTROLLER] Audio file received: ${req.file.originalname}`);
-    const analysis = await AIService.analyzeAudioIncident({
-      fileBuffer: req.file.buffer,
-      fileName: req.file.originalname,
-      latitude: incidentLat || 0.0,
-      longitude: incidentLng || 0.0,
-      isIsolated: isIsolated === 'true' || isIsolated === true,
-      motionAnomaly: hasMotionAnomaly,
-      // Pass the user's preferred language so Whisper doesn't silently fall back to English.
-      // null/undefined => let Whisper auto-detect from the recording.
-      language: user.language || null
-    });
-
-    analysisAvailable = analysis.available;
-    const aiText = (analysis.transcript || '').trim();
-    const clientText = (req.body.audioTranscript || '').trim();
-    finalTranscript = aiText || clientText || '';
-
     if (isManual) {
-      // Manual SOS is a person deliberately asking for help — fixed high score, ignoring any score from app
+      // A deliberate manual SOS must not wait for transcription or AI health.
+      // Preserve any browser transcript, but dispatch through the immediate path.
+      finalTranscript = (req.body.audioTranscript || '').trim();
       finalRiskScore = MANUAL_SOS_RISK_SCORE;
-    } else if (analysis.available) {
-      finalRiskScore = analysis.riskScore;
     } else {
-      let calculatedScore = 50;
-      if (effectiveTriggerType === 'audio') calculatedScore = 70;
-      if (effectiveTriggerType === 'motion') calculatedScore = 65;
-      const currentHour = new Date().getHours();
-      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
-      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
-      finalRiskScore = Math.min(calculatedScore, 100);
+      const analysis = await AIService.analyzeAudioIncident({
+        fileBuffer: req.file.buffer,
+        fileName: req.file.originalname,
+        latitude: incidentLat || 0.0,
+        longitude: incidentLng || 0.0,
+        isIsolated: isIsolated === 'true' || isIsolated === true,
+        motionAnomaly: hasMotionAnomaly,
+        // Pass the user's preferred language so Whisper doesn't silently fall back to English.
+        // null/undefined => let Whisper auto-detect from the recording.
+        language: user.language || null
+      });
+
+      analysisAvailable = analysis.available;
+      const aiText = (analysis.transcript || '').trim();
+      const clientText = (req.body.audioTranscript || '').trim();
+      finalTranscript = aiText || clientText || '';
+
+      if (analysis.available) {
+        finalRiskScore = analysis.riskScore;
+      } else {
+        let calculatedScore = 50;
+        if (effectiveTriggerType === 'audio') calculatedScore = 70;
+        if (effectiveTriggerType === 'motion') calculatedScore = 65;
+        const currentHour = new Date().getHours();
+        if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+        if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
+        finalRiskScore = Math.min(calculatedScore, 100);
+      }
     }
   } else {
     if (isManual) {
@@ -149,7 +153,9 @@ const isManual = !triggerType || triggerType === 'manual';
 
 export const getIncidents = asyncHandler(async (req, res) => {
   const userId = req.userId;
-  const list = await Incident.findByUserId(userId);
+  const list = (await Incident.findByUserId(userId)).filter((incident) =>
+    !['pending_dispatch', 'dispatching', 'cancelled'].includes(incident.status)
+  );
   
   const enrichedList = await Promise.all(list.map(async (inc) => {
     const user = await User.findById(inc.userId);
@@ -231,6 +237,14 @@ export const resolveIncident = asyncHandler(async (req, res) => {
       success: false,
       message: 'Access denied. You do not own this incident.',
       error: 'Forbidden'
+    });
+  }
+
+  if (['pending_dispatch', 'dispatching'].includes(incident.status)) {
+    return res.status(409).json({
+      success: false,
+      message: 'Use the pending alert controls to cancel or confirm dispatch.',
+      error: 'Conflict'
     });
   }
 
@@ -342,6 +356,14 @@ export const deleteIncident = asyncHandler(async (req, res) => {
       success: false,
       message: 'Access denied. You do not own this incident.',
       error: 'Forbidden'
+    });
+  }
+
+  if (['pending_dispatch', 'dispatching'].includes(incident.status)) {
+    return res.status(409).json({
+      success: false,
+      message: 'Pending emergency alerts cannot be deleted before dispatch completes.',
+      error: 'Conflict'
     });
   }
 
