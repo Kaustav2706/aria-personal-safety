@@ -2,7 +2,7 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
 import crypto from 'crypto';
 
 export class Incident {
-  static async create({ userId, status = 'active', triggerType = 'manual', latitude = null, longitude = null, riskScore = 0, audioTranscript = '', audioUrl = null, notificationLogs = [] }) {
+  static async create({ userId, status = 'active', triggerType = 'manual', latitude = null, longitude = null, riskScore = 0, audioTranscript = '', audioUrl = null, notificationLogs = [], dispatchAfter = null }) {
 
     const incidentId = crypto.randomUUID();
 
@@ -25,6 +25,9 @@ export class Incident {
         audioTranscript,
         audioUrl,
         notificationLogs,
+        dispatchAfter,
+        dispatchClaimedAt: null,
+        manualConfirmed: false,
         createdAt: new Date().toISOString()
       };
 
@@ -50,9 +53,9 @@ export class Incident {
       await client.query('BEGIN');
 
       const insertQuery = `
-        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript, audio_url, notification_logs)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt"
+        INSERT INTO incidents (id, user_id, status, trigger_type, latitude, longitude, risk_score, audio_transcript, audio_url, notification_logs, dispatch_after)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed", created_at as "createdAt"
       `;
 
       const res = await client.query(insertQuery, [
@@ -65,7 +68,8 @@ export class Incident {
         parseInt(riskScore) || 0,
         audioTranscript,
         audioUrl,
-        notificationLogs ? (typeof notificationLogs === 'string' ? notificationLogs : JSON.stringify(notificationLogs)) : null
+        notificationLogs ? (typeof notificationLogs === 'string' ? notificationLogs : JSON.stringify(notificationLogs)) : null,
+        dispatchAfter
       ]);
       const incident = res.rows[0];
 
@@ -101,7 +105,7 @@ export class Incident {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
-               notification_logs as "notificationLogs",
+               notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed",
                created_at as "createdAt" 
         FROM incidents 
         WHERE id = $1
@@ -124,7 +128,7 @@ export class Incident {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
-               notification_logs as "notificationLogs",
+               notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed",
                created_at as "createdAt" 
         FROM incidents 
         ORDER BY created_at DESC
@@ -148,7 +152,7 @@ static async findByUserId(userId) {
       const query = `
         SELECT id, user_id as "userId", status, trigger_type as "triggerType", 
                latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl",
-               notification_logs as "notificationLogs",
+               notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed",
                created_at as "createdAt" 
         FROM incidents 
         WHERE user_id = $1 
@@ -179,6 +183,7 @@ static async findByUserId(userId) {
       if (updates.audioTranscript) current.audioTranscript = updates.audioTranscript;
       if (updates.audioUrl !== undefined) current.audioUrl = updates.audioUrl;
       if (updates.notificationLogs !== undefined) current.notificationLogs = updates.notificationLogs;
+      if (updates.dispatchClaimedAt !== undefined) current.dispatchClaimedAt = updates.dispatchClaimedAt;
 
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
         if (current.latitude !== null && current.longitude !== null && !(current.latitude === 0 && current.longitude === 0)) {
@@ -235,9 +240,13 @@ static async findByUserId(userId) {
         fields.push(`notification_logs = $${valIdx++}`);
         values.push(updates.notificationLogs ? (typeof updates.notificationLogs === 'string' ? updates.notificationLogs : JSON.stringify(updates.notificationLogs)) : null);
       }
+      if (updates.dispatchClaimedAt !== undefined) {
+        fields.push(`dispatch_claimed_at = $${valIdx++}`);
+        values.push(updates.dispatchClaimedAt);
+      }
 
       if (fields.length === 0) {
-        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt" FROM incidents WHERE id = $1`;
+        const query = `SELECT id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed", created_at as "createdAt" FROM incidents WHERE id = $1`;
         const res = await client.query(query, [id]);
         await client.query('COMMIT');
         return res.rows[0];
@@ -248,7 +257,7 @@ static async findByUserId(userId) {
         UPDATE incidents 
         SET ${fields.join(', ')} 
         WHERE id = $${valIdx} 
-        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", created_at as "createdAt"
+        RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript", audio_url as "audioUrl", notification_logs as "notificationLogs", dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed", created_at as "createdAt"
       `;
       const res = await client.query(updateQuery, values);
       const incident = res.rows[0];
@@ -327,6 +336,150 @@ static async findByUserId(userId) {
       console.error('[INCIDENT MODEL] getLocationHistory error:', err.message);
       throw err;
     }
+  }
+
+  // Claim due alerts with row-level locking so multiple API replicas cannot
+  // dispatch the same pending incident at the same time. A stale claim is
+  // reclaimable after a process crash; delivery is therefore at least once.
+  static async claimDueMonitoringIncidents(limit = 10) {
+    const now = Date.now();
+    if (dbMode === 'memory') {
+      const claimed = memoryStore.incidents.filter((incident) => {
+        const due = incident.status === 'pending_dispatch' && incident.dispatchAfter && new Date(incident.dispatchAfter).getTime() <= now;
+        const stale = incident.status === 'dispatching' && incident.dispatchClaimedAt && new Date(incident.dispatchClaimedAt).getTime() <= now - 300000;
+        return incident.triggerType === 'monitoring' && (due || stale);
+      }).slice(0, limit);
+      for (const incident of claimed) {
+        incident.status = 'dispatching';
+        incident.dispatchClaimedAt = new Date(now).toISOString();
+      }
+      if (claimed.length) saveMemoryStore();
+      return claimed;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(`
+        WITH due AS (
+          SELECT id
+          FROM incidents
+          WHERE trigger_type = 'monitoring'
+            AND (
+              (status = 'pending_dispatch' AND dispatch_after <= NOW())
+              OR (status = 'dispatching' AND dispatch_claimed_at <= NOW() - INTERVAL '5 minutes')
+            )
+          ORDER BY dispatch_after NULLS LAST
+          LIMIT $1
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE incidents AS incident
+        SET status = 'dispatching', dispatch_claimed_at = NOW()
+        FROM due
+        WHERE incident.id = due.id
+        RETURNING incident.id, incident.user_id as "userId", incident.status,
+          incident.trigger_type as "triggerType", incident.latitude, incident.longitude,
+          incident.risk_score as "riskScore", incident.audio_transcript as "audioTranscript",
+          incident.audio_url as "audioUrl", incident.notification_logs as "notificationLogs",
+          incident.dispatch_after as "dispatchAfter", incident.dispatch_claimed_at as "dispatchClaimedAt", incident.manual_confirmed as "manualConfirmed",
+          incident.created_at as "createdAt"
+      `, [limit]);
+      await client.query('COMMIT');
+      return result.rows;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async completeMonitoringDispatch(id) {
+    if (dbMode === 'memory') {
+      const incident = memoryStore.incidents.find((item) => item.id === id && item.status === 'dispatching');
+      if (!incident) return null;
+      incident.status = 'active';
+      incident.dispatchClaimedAt = null;
+      saveMemoryStore();
+      return incident;
+    }
+    const result = await pool.query(`
+      UPDATE incidents SET status = 'active', dispatch_claimed_at = NULL
+      WHERE id = $1 AND status = 'dispatching'
+      RETURNING id, user_id as "userId", status, trigger_type as "triggerType", latitude,
+        longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+        audio_url as "audioUrl", notification_logs as "notificationLogs",
+        dispatch_after as "dispatchAfter", manual_confirmed as "manualConfirmed", created_at as "createdAt"
+    `, [id]);
+    return result.rows[0] || null;
+  }
+
+  static async releaseMonitoringDispatch(id) {
+    if (dbMode === 'memory') {
+      const incident = memoryStore.incidents.find((item) => item.id === id && item.status === 'dispatching');
+      if (!incident) return null;
+      incident.status = 'pending_dispatch';
+      incident.dispatchClaimedAt = null;
+      saveMemoryStore();
+      return incident;
+    }
+    const result = await pool.query(`
+      UPDATE incidents SET status = 'pending_dispatch', dispatch_claimed_at = NULL
+      WHERE id = $1 AND status = 'dispatching'
+      RETURNING id
+    `, [id]);
+    return result.rows[0] || null;
+  }
+
+  // The status and deadline predicates make cancel-vs-dispatch an atomic race:
+  // a cancellation succeeds only while the incident remains inside its grace window.
+  static async cancelPendingMonitoringIncident(id, userId) {
+    if (dbMode === 'memory') {
+      const incident = memoryStore.incidents.find((item) =>
+        item.id === id && item.userId === userId && item.triggerType === 'monitoring' &&
+        item.status === 'pending_dispatch' && new Date(item.dispatchAfter).getTime() > Date.now()
+      );
+      if (!incident) return null;
+      incident.status = 'cancelled';
+      saveMemoryStore();
+      return incident;
+    }
+    const result = await pool.query(`
+      UPDATE incidents SET status = 'cancelled'
+      WHERE id = $1 AND user_id = $2 AND trigger_type = 'monitoring'
+        AND status = 'pending_dispatch' AND dispatch_after > NOW()
+      RETURNING id, user_id as "userId", status, trigger_type as "triggerType",
+        latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+        audio_url as "audioUrl", dispatch_after as "dispatchAfter", created_at as "createdAt"
+    `, [id, userId]);
+    return result.rows[0] || null;
+  }
+
+  // User confirmation ends the grace period immediately and claims the row,
+  // so the regular poller and this request cannot both send the alert.
+  static async confirmPendingMonitoringIncident(id, userId, manualRiskScore = 90) {
+    if (dbMode === 'memory') {
+      const incident = memoryStore.incidents.find((item) =>
+        item.id === id && item.userId === userId && item.triggerType === 'monitoring' && item.status === 'pending_dispatch'
+      );
+      if (!incident) return null;
+      incident.status = 'dispatching';
+      incident.dispatchClaimedAt = new Date().toISOString();
+      incident.manualConfirmed = true;
+      incident.riskScore = manualRiskScore;
+      saveMemoryStore();
+      return incident;
+    }
+    const result = await pool.query(`
+      UPDATE incidents SET status = 'dispatching', dispatch_claimed_at = NOW(), manual_confirmed = TRUE, risk_score = $3
+      WHERE id = $1 AND user_id = $2 AND trigger_type = 'monitoring' AND status = 'pending_dispatch'
+      RETURNING id, user_id as "userId", status, trigger_type as "triggerType",
+        latitude, longitude, risk_score as "riskScore", audio_transcript as "audioTranscript",
+        audio_url as "audioUrl", notification_logs as "notificationLogs",
+        dispatch_after as "dispatchAfter", dispatch_claimed_at as "dispatchClaimedAt", manual_confirmed as "manualConfirmed",
+        created_at as "createdAt"
+    `, [id, userId, manualRiskScore]);
+    return result.rows[0] || null;
   }
 
   static async delete(id) {

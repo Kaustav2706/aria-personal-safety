@@ -29,6 +29,7 @@ export default function MonitoringView({
   const [isStopping, setIsStopping] = useState(false);
 
   // Analysis results from backend
+  const [micLevel, setMicLevel] = useState(0);
   const [confidence, setConfidence] = useState(0);
   const [riskScore, setRiskScore] = useState(0);
   const [transcript, setTranscript] = useState('Waiting for analysis...');
@@ -56,11 +57,9 @@ export default function MonitoringView({
   const rollingChunksRef = useRef<{ blob: Blob; isFirst: boolean }[]>([]);
   const evidenceChunksRef = useRef<{ blob: Blob; isFirst: boolean; timestamp: number }[]>([]);
   const webmHeaderRef = useRef<Blob | null>(null);
-  const recordingStartTimeRef = useRef<number>(0);
   const transcriptRef = useRef<string>('');
-  const confidenceRef = useRef<number>(0);
   const speechRecognitionRef = useRef<any>(null);
-  const consecutiveHighCountRef = useRef<number>(0);
+  const manualSosTriggeredRef = useRef<boolean>(false);
 
   // Extracts the EBML container and tracks header from the initial WebM slice
   // (the bytes before the first Cluster element tag [0x1F, 0x43, 0xB6, 0x75])
@@ -83,28 +82,19 @@ export default function MonitoringView({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const lastBackendConfidenceRef = useRef<number>(15);
 
   // Risk history — one real point per chunk analysis, max 20 points kept
   // Seeded with a flat baseline so the chart isn't empty before monitoring starts
   const [riskHistory, setRiskHistory] = useState<number[]>([]);
   const uploadInProgressRef = useRef(false);
-  const autoSosTriggeredRef = useRef<boolean>(false);
-
-  const triggerAutoSOS = useCallback(async (source: string = 'threshold') => {
-    if (autoSosTriggeredRef.current) return;
-    autoSosTriggeredRef.current = true;
-    console.log(`[MONITORING] Monitor reached threshold (${source}) — packaging voice evidence & triggering Auto SOS...`);
+  const triggerManualSOS = useCallback(async () => {
+    if (manualSosTriggeredRef.current) return;
+    manualSosTriggeredRef.current = true;
+    console.log('[MONITORING] User manually requested SOS — packaging available voice evidence...');
 
     // Stop live browser speech recognition if running
     if (speechRecognitionRef.current) {
       try { speechRecognitionRef.current.stop(); } catch {}
-    }
-
-    // Ensure recorder captures at least 2 seconds so the distress call isn't clipped
-    const elapsed = Date.now() - recordingStartTimeRef.current;
-    if (elapsed < 2000 && mediaRecorderRef.current?.state === 'recording') {
-      await new Promise((r) => setTimeout(r, Math.max(0, 2000 - elapsed)));
     }
 
     // Explicitly request latest data slice and wait for mediaRecorder to stop cleanly
@@ -175,10 +165,10 @@ export default function MonitoringView({
     const currentTranscript = transcriptRef.current;
     const voiceNote = currentTranscript && !currentTranscript.includes('unavailable') && currentTranscript !== 'Waiting for analysis...' && currentTranscript !== 'No speech detected.'
       ? currentTranscript
-      : `Voice distress detected (Confidence: ${confidenceRef.current || 85}%)`;
+      : '';
 
-    // Trigger SOS emergency call & transition to Active SOS screen with audio evidence and 'audio' triggerType
-    onTriggerSOS('audio', voiceNote, gpsCoordsRef.current, audioBlob);
+    // Only an explicit user action uses this path; audio level is never an SOS signal.
+    onTriggerSOS('manual', voiceNote, gpsCoordsRef.current, audioBlob);
   }, [sessionId, onTriggerSOS, onMonitoringChange]);
 
   useEffect(() => {
@@ -263,7 +253,8 @@ export default function MonitoringView({
   // ── Start Monitoring ──────────────────────────────────────────────────────
   const handleStart = async () => {
     setError('');
-    autoSosTriggeredRef.current = false;
+    manualSosTriggeredRef.current = false;
+    setMicLevel(0);
 
     // Safety check: refuse to arm monitoring if no emergency contacts are configured
     if (!contacts || contacts.length === 0) {
@@ -314,27 +305,11 @@ export default function MonitoringView({
           // Boost and map volume level (up to 85%)
           const liveVoiceLevel = Math.min(Math.round(rms * 400), 85);
           
-          // Display live level relative to last backend response with peak-hold/slow-decay smoothing
-          setConfidence((prev) => {
-            const target = Math.min(lastBackendConfidenceRef.current + liveVoiceLevel, 100);
-            const nextVal = target > prev
-              ? Math.round(prev * 0.5 + target * 0.5) // Rise relatively quickly
-              : Math.round(prev * 0.95 + target * 0.05); // Decay slowly to prevent flickering
-
-            confidenceRef.current = nextVal;
-
-            if (nextVal >= 70 && !autoSosTriggeredRef.current && isMonitoringActiveRef.current) {
-              consecutiveHighCountRef.current += 1;
-              // Require voice distress to be sustained for ~400ms before auto-triggering
-              // so the recorder captures the full speech phrase
-              if (consecutiveHighCountRef.current >= 20) {
-                triggerAutoSOS(`Voice distress level reached ${nextVal}%`);
-              }
-            } else {
-              consecutiveHighCountRef.current = Math.max(0, consecutiveHighCountRef.current - 1);
-            }
-            return nextVal;
-          });
+          // Microphone amplitude is informational only. It never contributes
+          // to AI confidence and cannot trigger an SOS.
+          setMicLevel((prev) => liveVoiceLevel > prev
+            ? Math.round(prev * 0.5 + liveVoiceLevel * 0.5)
+            : Math.round(prev * 0.95 + liveVoiceLevel * 0.05));
           
           animationFrameRef.current = requestAnimationFrame(updateVolume);
         };
@@ -354,8 +329,6 @@ export default function MonitoringView({
       rollingChunksRef.current = [];
       evidenceChunksRef.current = [];
       webmHeaderRef.current = null;
-      recordingStartTimeRef.current = Date.now();
-      consecutiveHighCountRef.current = 0;
 
       mediaRecorder.ondataavailable = async (e) => {
         if (e.data.size > 0) {
@@ -409,7 +382,8 @@ export default function MonitoringView({
 
       // 4. Overlapping window uploader:
       // Sequential scheduling: never sends the next chunk until the previous one has come back or timed out.
-      // Timeout (4500ms) is shorter than the interval (5000ms), eliminating stacked requests under load.
+      // Requests are sequential; each analysis payload is also capped below so slow CPU inference
+      // cannot turn later uploads into increasingly long, stale audio windows.
       isMonitoringActiveRef.current = true;
       const CHUNK_INTERVAL_MS = 4000;
 
@@ -419,11 +393,13 @@ export default function MonitoringView({
           if (!isMonitoringActiveRef.current) return;
 
           if (rollingChunksRef.current.length > 0) {
-            // Take accumulated slices for this upload window
-            const slicesToUpload = [...rollingChunksRef.current];
+            // Analyze only a short recent window, even if an earlier request timed out.
+            // This prevents recorder slices from growing into multi-minute inference jobs.
+            const collectedSlices = rollingChunksRef.current;
+            const slicesToUpload = collectedSlices.slice(-8);
 
             // Retain the last 2 slices (approx 2s of audio) for cross-boundary overlap
-            rollingChunksRef.current = rollingChunksRef.current.slice(-2);
+            rollingChunksRef.current = collectedSlices.slice(-2);
 
             // Prepend WebM container/tracks header if this window doesn't include the first slice
             const containsFirst = slicesToUpload.some((s) => s.isFirst);
@@ -543,8 +519,6 @@ export default function MonitoringView({
         if (data.autoIncident) {
           console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
 
-          // Mark auto-SOS as triggered to prevent any other timers or volume-level callbacks from firing
-          autoSosTriggeredRef.current = true;
           isMonitoringActiveRef.current = false;
 
           // Immediately cancel volume tracking animation frame
@@ -587,24 +561,23 @@ export default function MonitoringView({
             monitoringService.stopSession(sid).catch(() => {});
           }
 
-          // Trigger SOS screen transition immediately using the backend autoIncident
+          // Show a cancellable countdown for backend-created automatic incidents.
           onIncidentCreated({
             id: data.autoIncident.id || data.autoIncident.incidentId,
             userId: '',
-            status: 'active',
+            status: data.autoIncident.status || 'pending_dispatch',
             triggerType: data.autoIncident.triggerType || 'monitoring',
             latitude: data.autoIncident.latitude ?? currentFix?.lat ?? null,
             longitude: data.autoIncident.longitude ?? currentFix?.lng ?? null,
             riskScore: data.autoIncident.riskScore,
             audioTranscript: data.autoIncident.audioTranscript || data.transcript,
+            dispatchAfter: data.autoIncident.dispatchAfter,
             createdAt: data.autoIncident.createdAt || new Date().toISOString(),
           });
           return;
         }
 
-        lastBackendConfidenceRef.current = data.confidence;
         setConfidence(data.confidence);
-        confidenceRef.current = data.confidence;
         setRiskScore(data.riskScore);
         if (data.transcript && data.transcript.trim()) {
           transcriptRef.current = data.transcript.trim();
@@ -649,7 +622,7 @@ export default function MonitoringView({
       audioContextRef.current = null;
     }
     analyserRef.current = null;
-    lastBackendConfidenceRef.current = 15;
+    setMicLevel(0);
     setConfidence(0);
 
     // Clear timers
@@ -847,43 +820,28 @@ export default function MonitoringView({
               <div className="w-8 h-8 rounded-lg bg-tertiary/[0.08] flex items-center justify-center">
                 <Ear className="w-4 h-4 text-tertiary" />
               </div>
-              <span className="text-[12px] font-bold text-on-surface-variant/80">Voice Distress Confidence</span>
+              <span className="text-[12px] font-bold text-on-surface-variant/80">Mic level</span>
             </div>
             <div className="flex items-center gap-3">
-              {/* DEV-only: simulate a distress reading for manual QA.
-                  import.meta.env.DEV is replaced with `false` at build time
-                  by Vite, so this entire block is dead-code-eliminated in
-                  production and never visible to real users. */}
-              {import.meta.env.DEV && isActive && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    lastBackendConfidenceRef.current = 75;
-                    setConfidence(75);
-                    setDistressDetected(true);
-                    triggerAutoSOS('Dev QA test button (75%)');
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-red-500/[0.12] hover:bg-red-500/[0.22] border border-red-500/25 text-[9px] uppercase tracking-[0.1em] font-extrabold text-red-400 transition-colors cursor-pointer"
-                  title="Dev-only: simulate distress signal >=70% to trigger Auto SOS"
-                >
-                  [DEV] Test &gt;=70% (Auto SOS)
-                </button>
-              )}
-              <span className={`text-xl font-black ${distressDetected ? 'text-primary' : 'text-tertiary'}`}>
-                {confidence}%
+              <span className="text-xl font-black text-tertiary">
+                {micLevel}%
               </span>
             </div>
           </div>
 
           <div className="h-2 w-full bg-surface-container/60 rounded-full overflow-hidden">
             <div 
-              className={`h-full rounded-full transition-all duration-500 relative ${distressDetected ? 'bg-gradient-to-r from-primary to-red-500' : 'bg-gradient-to-r from-secondary to-tertiary'}`}
-              style={{ width: `${Math.min(confidence, 100)}%` }} 
+              className="h-full rounded-full transition-all duration-150 relative bg-gradient-to-r from-secondary to-tertiary"
+              style={{ width: `${Math.min(micLevel, 100)}%` }}
             >
               {/* Glowing edge */}
               <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white/40 blur-[3px]" />
             </div>
           </div>
+
+          <p className="text-[10px] text-on-surface-variant/50 font-semibold uppercase tracking-[0.08em]">
+            Latest backend AI confidence: {aiAvailable === false ? 'unavailable' : chunkCount > 0 ? `${confidence}%` : 'waiting for analysis'}
+          </p>
 
           <p className="text-[13px] text-on-surface-variant/60 leading-relaxed font-medium">
             {isActive ? transcript : 'Start monitoring to analyze voice patterns.'}
@@ -897,16 +855,16 @@ export default function MonitoringView({
             </div>
           )}
 
-          {/* Conditional SOS Trigger when Voice Distress Confidence exceeds 50% */}
-          {confidence > 50 && (
+          {/* Manual SOS is explicit and independent of microphone amplitude. */}
+          {isActive && (
             <div className="pt-3 border-t border-white/[0.06] animate-slide-up">
               <button
-                onClick={() => triggerAutoSOS(`Flag SOS Button (Confidence: ${confidence}%)`)}
+                onClick={triggerManualSOS}
                 className="w-full py-3.5 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs uppercase tracking-[0.12em] rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer relative overflow-hidden shadow-[0_0_20px_rgba(220,38,38,0.35)]"
               >
                 <div className="absolute inset-0 shimmer" />
                 <ShieldAlert className="w-4.5 h-4.5 animate-bounce relative z-10" />
-                <span className="relative z-10">Flag SOS Emergency</span>
+                <span className="relative z-10">Send SOS now</span>
               </button>
             </div>
           )}

@@ -66,7 +66,11 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
+  ssl: process.env.DATABASE_SSL === 'false'
+    ? false
+    : process.env.DATABASE_URL.includes('localhost')
+      ? false
+      : { rejectUnauthorized: false }
 });
 
 // Flag to coordinate fallback storage if local database is blocked/offline
@@ -129,13 +133,22 @@ export async function initializeDatabase() {
         risk_score INTEGER DEFAULT 0,
         audio_transcript TEXT,
         audio_url TEXT,
+        dispatch_after TIMESTAMPTZ,
+        dispatch_claimed_at TIMESTAMPTZ,
+        manual_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       ALTER TABLE incidents ADD COLUMN IF NOT EXISTS audio_url TEXT;
       ALTER TABLE incidents ADD COLUMN IF NOT EXISTS notification_logs JSONB;
+      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS dispatch_after TIMESTAMPTZ;
+      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
+      ALTER TABLE incidents ADD COLUMN IF NOT EXISTS manual_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE incidents ALTER COLUMN latitude DROP NOT NULL;
       ALTER TABLE incidents ALTER COLUMN longitude DROP NOT NULL;
+      CREATE INDEX IF NOT EXISTS incidents_pending_dispatch_idx
+        ON incidents (dispatch_after)
+        WHERE status IN ('pending_dispatch', 'dispatching');
 
       CREATE TABLE IF NOT EXISTS location_history (
         id SERIAL PRIMARY KEY,

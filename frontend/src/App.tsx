@@ -19,6 +19,7 @@ import DashboardView from './components/DashboardView';
 import MonitoringView from './components/MonitoringView';
 import SafeRideView from './components/SafeRideView';
 import ActiveSOSView from './components/ActiveSOSView';
+import PendingSOSView from './components/PendingSOSView';
 import SOSFailureView from './components/SOSFailureView';
 import HistoryView from './components/HistoryView';
 import IncidentDetailsView from './components/IncidentDetailsView';
@@ -103,6 +104,26 @@ export default function App() {
   const [sosIncidentId, setSosIncidentId] = useState<string | null>(null);
   const [sosRiskScore, setSosRiskScore] = useState(0);
   const [sosTranscript, setSosTranscript] = useState('');
+  const [pendingDispatchAt, setPendingDispatchAt] = useState<string | null>(null);
+
+  const handlePendingDispatchComplete = useCallback((incident: BackendIncident) => {
+    const newItem = backendToIncidentItem(incident);
+    setIncidents((prev) => prev.some((item) => item.id === newItem.id) ? prev : [newItem, ...prev]);
+    setSosIncidentId(incident.id);
+    setSosRiskScore(incident.riskScore);
+    setSosTranscript(incident.audioTranscript || '');
+    setRiskScore(incident.riskScore);
+    setPendingDispatchAt(null);
+    setCurrentScreen('SOS_ACTIVE');
+  }, []);
+
+  const handlePendingDispatchCancelled = useCallback(() => {
+    setPendingDispatchAt(null);
+    setSosIncidentId(null);
+    setSosRiskScore(0);
+    setSosTranscript('');
+    setCurrentScreen('DASHBOARD');
+  }, []);
 
   // Offline SOS & retry queue state
   const [queuedAlerts, setQueuedAlerts] = useState<QueuedAlert[]>([]);
@@ -260,6 +281,7 @@ export default function App() {
         setSosRiskScore(data.riskScore || 85);
         setSosTranscript(data.audioTranscript || '');
         setRiskScore(data.riskScore || 85);
+        setPendingDispatchAt(null);
         setMonitoringActive(false);
         setActiveFailedAlert(null);
         setCurrentScreen('SOS_ACTIVE');
@@ -468,6 +490,7 @@ export default function App() {
         setSosRiskScore(inc.riskScore);
         setSosTranscript(inc.audioTranscript || '');
         setRiskScore(inc.riskScore);
+        setPendingDispatchAt(null);
 
         // Add to local incidents list if not already present (prevents duplicates from socket events)
         const newItem = backendToIncidentItem(inc);
@@ -815,20 +838,27 @@ export default function App() {
             onMonitoringChange={setMonitoringActive}
             onRiskScoreChange={setRiskScore}
             onIncidentCreated={(inc) => {
-              const newItem = backendToIncidentItem(inc);
-              setIncidents((prev) => {
-                const exists = prev.some(i => i.id === newItem.id);
-                if (exists) return prev;
-                return [newItem, ...prev];
-              });
-              // Auto-redirect to SOS_ACTIVE screen
+              if (inc.status === 'active') {
+                const newItem = backendToIncidentItem(inc);
+                setIncidents((prev) => prev.some((item) => item.id === newItem.id) ? prev : [newItem, ...prev]);
+                setSosIncidentId(inc.id);
+                setSosRiskScore(inc.riskScore || 85);
+                setSosTranscript(inc.audioTranscript || '');
+                setRiskScore(inc.riskScore || 85);
+                setMonitoringActive(false);
+                setActiveFailedAlert(null);
+                setCurrentScreen('SOS_ACTIVE');
+                return;
+              }
+
               setSosIncidentId(inc.id);
               setSosRiskScore(inc.riskScore || 85);
               setSosTranscript(inc.audioTranscript || '');
               setRiskScore(inc.riskScore || 85);
+              setPendingDispatchAt(inc.dispatchAfter || new Date(Date.now() + 15000).toISOString());
               setMonitoringActive(false);
               setActiveFailedAlert(null);
-              setCurrentScreen('SOS_ACTIVE');
+              setCurrentScreen('SOS_PENDING');
             }}
             onTriggerSOS={handleTriggerSOS}
             language={profile.language || null}
@@ -847,6 +877,15 @@ export default function App() {
             incidentId={sosIncidentId}
             riskScore={sosRiskScore}
             transcript={sosTranscript}
+          />
+        )}
+
+        {currentScreen === 'SOS_PENDING' && sosIncidentId && pendingDispatchAt && (
+          <PendingSOSView
+            incidentId={sosIncidentId}
+            dispatchAfter={pendingDispatchAt}
+            onDispatched={handlePendingDispatchComplete}
+            onCancelled={handlePendingDispatchCancelled}
           />
         )}
 

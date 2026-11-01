@@ -4,9 +4,9 @@ import { MonitoringSession } from '../models/MonitoringSession.model.js';
 import { AIService } from '../services/aiService.js';
 import { AudioEvidenceService } from '../services/audioEvidenceService.js';
 import { StorageService } from '../services/storageService.js';
-import { dispatchTieredAlerts } from '../config/alertConfig.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { get as redisGet, set as redisSet, del as redisDel } from '../config/redis.js';
+import { dispatchClaimedIncident } from '../services/pendingIncidentDispatcher.js';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -32,8 +32,8 @@ async function findCooldownIncident(userId) {
       const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
       // Ensure the cached incident is genuinely still active in the database!
       const dbInc = await Incident.findById(parsed.id);
-      if (dbInc && dbInc.status === 'active') {
-        return parsed;
+      if (dbInc && ['active', 'pending_dispatch', 'dispatching'].includes(dbInc.status)) {
+        return dbInc;
       } else {
         // Stale cooldown from resolved or cancelled incident — clear it
         try { await redisDel(redisKey); } catch { }
@@ -52,7 +52,7 @@ async function findCooldownIncident(userId) {
     // creating a second incident (and a second round of alerts). Bug N7.
     const existing = incidents.find((incident) =>
       ['monitoring', 'audio', 'motion'].includes(incident.triggerType) &&
-      incident.status === 'active' &&
+      ['active', 'pending_dispatch', 'dispatching'].includes(incident.status) &&
       new Date(incident.createdAt).getTime() >= recentCutoff
     ) || null;
 
@@ -162,9 +162,15 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
     if (existingIncident) {
       autoIncident = {
+        id: existingIncident.id,
         incidentId: existingIncident.id,
         riskScore: existingIncident.riskScore,
         triggerType: existingIncident.triggerType,
+        status: existingIncident.status,
+        dispatchAfter: existingIncident.dispatchAfter,
+        audioTranscript: existingIncident.audioTranscript,
+        latitude: existingIncident.latitude,
+        longitude: existingIncident.longitude,
         reused: true
       };
       console.log(`[MONITORING] Reusing active incident ${existingIncident.id} for high-risk detection.`);
@@ -203,13 +209,14 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
           const incident = await Incident.create({
             userId,
-            status: 'active',
+            status: 'pending_dispatch',
             triggerType: 'monitoring',
             latitude: incidentLat,
             longitude: incidentLng,
             riskScore,
             audioTranscript: transcript,
-            audioUrl
+            audioUrl,
+            dispatchAfter: new Date(Date.now() + 15000).toISOString()
           });
 
           // Set 5-minute cooldown in Redis immediately to guard against duplicate incidents across servers
@@ -226,16 +233,6 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
           console.log(`[MONITORING] Auto-incident created: ${incident.id} (Risk: ${riskScore}%)`);
 
-          // Emit live update through Socket.IO immediately so frontend & police HUD update in milliseconds
-          const io = req.app.get('io');
-          if (io) {
-            io.emit('incidentCreated', {
-              ...incident,
-              userName: user.name,
-              userPhone: user.phone
-            });
-          }
-
           autoIncident = {
             id: incident.id,
             incidentId: incident.id,
@@ -244,6 +241,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
             audioTranscript: incident.audioTranscript,
             audioUrl: incident.audioUrl,
             status: incident.status,
+            dispatchAfter: incident.dispatchAfter,
             latitude: incident.latitude,
             longitude: incident.longitude,
             createdAt: incident.createdAt || new Date().toISOString()
@@ -251,10 +249,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
 
           console.log(`[MONITORING] Auto Incident Triggered: YES | Session: ${sessionId || 'N/A'} | User: ${userId} | Risk: ${riskScore} | Distress: ${distress}`);
 
-          // Notify Emergency Contacts and Police Dispatch asynchronously in background without blocking HTTP response
-          dispatchTieredAlerts({ user, incident }).catch(alertErr => {
-            console.error('[MONITORING] Error in tiered alerts dispatch:', alertErr.message);
-          });
+          // The durable dispatcher sends alerts after the grace period unless
+          // the user cancels this pending incident first.
         }
       } catch (incidentErr) {
         console.error(`[MONITORING] Auto-incident creation failed for user ${userId}:`, incidentErr.message);
@@ -274,6 +270,86 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     transcript,
     riskScore,
     autoIncident
+  });
+});
+
+// POST /api/monitoring/incidents/:incidentId/cancel
+// Cancels only an AI-created pending incident while its 15-second grace period
+// remains open. The database condition serializes this against dispatch claims.
+export const cancelPendingIncident = asyncHandler(async (req, res) => {
+  const { incidentId } = req.params;
+  const userId = req.userId;
+  const cancelled = await Incident.cancelPendingMonitoringIncident(incidentId, userId);
+
+  if (!cancelled) {
+    const incident = await Incident.findById(incidentId);
+    if (!incident) {
+      return res.status(404).json({ success: false, message: 'Incident not found.' });
+    }
+    if (incident.userId !== userId) {
+      return res.status(403).json({ success: false, message: 'You do not own this incident.' });
+    }
+    return res.status(409).json({
+      success: false,
+      message: incident.status === 'cancelled'
+        ? 'This pending alert was already cancelled.'
+        : 'The cancellation window has ended; dispatch has started or completed.',
+      incident
+    });
+  }
+
+  try { await redisDel(`incident:cooldown:${userId}`); } catch (err) {
+    console.warn('[MONITORING] Could not clear cancelled incident cooldown:', err.message);
+  }
+
+  return res.status(200).json({ success: true, message: 'Pending alert cancelled.', incident: cancelled });
+});
+
+// POST /api/monitoring/incidents/:incidentId/confirm
+// User confirmation bypasses the remaining grace period and dispatches now.
+export const confirmPendingIncident = asyncHandler(async (req, res) => {
+  const { incidentId } = req.params;
+  const userId = req.userId;
+  const manualRiskScore = parseInt(process.env.MANUAL_SOS_RISK_SCORE, 10) || 90;
+  const claimed = await Incident.confirmPendingMonitoringIncident(incidentId, userId, manualRiskScore);
+
+  if (!claimed) {
+    const incident = await Incident.findById(incidentId);
+    if (!incident) return res.status(404).json({ success: false, message: 'Incident not found.' });
+    if (incident.userId !== userId) return res.status(403).json({ success: false, message: 'You do not own this incident.' });
+    if (incident.status === 'dispatching' || incident.status === 'active') {
+      return res.status(202).json({ success: true, message: 'Alert dispatch is already in progress.', incident });
+    }
+    return res.status(409).json({ success: false, message: 'This pending alert can no longer be confirmed.', incident });
+  }
+
+  // This work is claimed durably before returning, so a server restart cannot
+  // lose the user's explicit request to send the alert immediately.
+  dispatchClaimedIncident(claimed, req.app.get('io'));
+  return res.status(202).json({ success: true, message: 'Alert dispatch started.', incident: claimed });
+});
+
+// GET /api/monitoring/incidents/:incidentId/status
+// Lightweight polling endpoint; does not mint an evidence URL every second.
+export const getAutoIncidentStatus = asyncHandler(async (req, res) => {
+  const incident = await Incident.findById(req.params.incidentId);
+  if (!incident) return res.status(404).json({ success: false, message: 'Incident not found.' });
+  if (incident.userId !== req.userId) return res.status(403).json({ success: false, message: 'You do not own this incident.' });
+
+  return res.status(200).json({
+    success: true,
+    incident: {
+      id: incident.id,
+      userId: incident.userId,
+      status: incident.status,
+      triggerType: incident.triggerType,
+      riskScore: incident.riskScore,
+      audioTranscript: incident.audioTranscript,
+      latitude: incident.latitude,
+      longitude: incident.longitude,
+      createdAt: incident.createdAt,
+      dispatchAfter: incident.dispatchAfter
+    }
   });
 });
 

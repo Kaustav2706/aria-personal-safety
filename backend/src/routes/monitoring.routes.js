@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { analyzeChunk, startSession, stopSession, getSessionStatus } from '../controllers/monitoring.controller.js';
+import { analyzeChunk, startSession, stopSession, getSessionStatus, cancelPendingIncident, confirmPendingIncident, getAutoIncidentStatus } from '../controllers/monitoring.controller.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { monitoringRateLimiter } from '../middleware/rateLimiter.js';
 
@@ -12,6 +12,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 // POST /api/monitoring/chunk - Upload audio chunk for AI analysis
 // Protected by: JWT auth → rate limiter (1 chunk / 3s) → multer file upload
 router.post('/chunk', authenticateToken, monitoringRateLimiter, upload.single('file'), analyzeChunk);
+
+// POST /api/monitoring/incidents/:incidentId/cancel - cancel AI SOS during grace period
+router.post('/incidents/:incidentId/cancel', authenticateToken, cancelPendingIncident);
+router.post('/incidents/:incidentId/confirm', authenticateToken, confirmPendingIncident);
+router.get('/incidents/:incidentId/status', authenticateToken, getAutoIncidentStatus);
 
 // POST /api/monitoring/start - Start a monitoring session
 router.post('/start', authenticateToken, startSession);

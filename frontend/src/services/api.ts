@@ -104,6 +104,12 @@ export const monitoringService = {
     api.post('/api/monitoring/stop', { sessionId }),
   getStatus: (sessionId: string) =>
     api.get(`/api/monitoring/status/${sessionId}`),
+  cancelPendingIncident: (incidentId: string) =>
+    api.post(`/api/monitoring/incidents/${incidentId}/cancel`),
+  confirmPendingIncident: (incidentId: string) =>
+    api.post(`/api/monitoring/incidents/${incidentId}/confirm`),
+  getAutoIncidentStatus: (incidentId: string) =>
+    api.get(`/api/monitoring/incidents/${incidentId}/status`),
 };
 
 export const incidentService = {

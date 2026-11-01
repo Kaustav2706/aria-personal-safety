@@ -1,8 +1,9 @@
 import os
 import tempfile
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from threading import Lock
 from typing import Optional
 from starlette.concurrency import run_in_threadpool
 
@@ -34,6 +35,19 @@ app = FastAPI(
     description="Real-time audio processing & context risk assessment service.",
     version="1.1.0"
 )
+
+# Do not queue stale real-time audio while CPU inference is still running.
+analysis_request_lock = Lock()
+
+def acquire_analysis_slot(x_internal_secret: Optional[str] = Header(None)):
+    if x_internal_secret != AI_ENGINE_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not analysis_request_lock.acquire(blocking=False):
+        raise HTTPException(status_code=503, detail="AI analysis is busy; retry with a fresh audio window.")
+    try:
+        yield
+    finally:
+        analysis_request_lock.release()
 
 # ── Explicit CORS Configuration ─────────────────────────────────────────────
 # Restrict AI Engine access to authorized origins (backend and frontends).
@@ -85,7 +99,8 @@ async def analyze_incident_audio(
     # Passed explicitly so Whisper doesn't have to auto-detect on short clips.
     # When null/omitted, Whisper auto-detects the language from the recording.
     language: Optional[str] = Form(None),
-    x_internal_secret: Optional[str] = Header(None)
+    x_internal_secret: Optional[str] = Header(None),
+    _analysis_slot: None = Depends(acquire_analysis_slot)
 ):
     """
     Analyzes uploaded audio file using Whisper transcription and acoustics evaluation,

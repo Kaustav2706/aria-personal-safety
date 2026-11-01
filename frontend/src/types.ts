@@ -12,6 +12,7 @@ export type Screen =
   | 'DASHBOARD' // Home
   | 'MONITORING'
   | 'SAFE_RIDE'
+  | 'SOS_PENDING'
   | 'SOS_ACTIVE'
   | 'SOS_FAILED'
   | 'INCIDENT_DETAILS'
@@ -92,7 +93,7 @@ export interface BackendUser {
 export interface BackendIncident {
   id: string;
   userId: string;
-  status: 'active' | 'resolved';
+  status: 'active' | 'resolved' | 'pending_dispatch' | 'dispatching' | 'cancelled';
   triggerType: string;
   latitude: number | null;
   longitude: number | null;
@@ -101,6 +102,8 @@ export interface BackendIncident {
   createdAt: string;
   userName?: string;
   userPhone?: string;
+  dispatchAfter?: string | null;
+  dispatchClaimedAt?: string | null;
 }
 
 /** Response from POST /api/monitoring/chunk */
@@ -119,7 +122,8 @@ export interface ChunkAnalysis {
     triggerType: string;
     audioTranscript?: string;
     audioUrl?: string;
-    status?: string;
+    status?: 'active' | 'pending_dispatch' | 'dispatching' | 'cancelled' | 'resolved';
+    dispatchAfter?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     createdAt?: string;

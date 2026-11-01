@@ -27,6 +27,7 @@ import evidenceRoutes from './routes/evidence.routes.js';
 import { setupLiveTracking } from './sockets/liveTracking.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { AIService } from './services/aiService.js';
+import { startPendingIncidentDispatcher } from './services/pendingIncidentDispatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,6 +152,7 @@ app.use(errorHandler);
 // Boot sequence: Initialize database first, then start listener
 async function boot() {
   await initializeDatabase();
+  startPendingIncidentDispatcher(io);
   
   server.listen(PORT, () => {
     const activeUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;

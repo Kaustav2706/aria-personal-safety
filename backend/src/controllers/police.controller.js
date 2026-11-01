@@ -18,7 +18,9 @@ import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
  * Returns ALL incidents across all users (dispatcher view).
  */
 export const getPoliceIncidents = asyncHandler(async (req, res) => {
-  const list = await Incident.findAll();
+  const list = (await Incident.findAll()).filter((incident) =>
+    !['pending_dispatch', 'dispatching', 'cancelled'].includes(incident.status)
+  );
 
   const enrichedList = await Promise.all(list.map(async (inc) => {
     const user = await User.findById(inc.userId);
@@ -53,6 +55,14 @@ export const getPoliceIncidentById = asyncHandler(async (req, res) => {
     return res.status(404).json({
       success: false,
       message: 'Incident record not found',
+      error: 'Not Found'
+    });
+  }
+
+  if (['pending_dispatch', 'dispatching', 'cancelled'].includes(incident.status)) {
+    return res.status(404).json({
+      success: false,
+      message: 'Incident is not available to dispatch.',
       error: 'Not Found'
     });
   }
@@ -104,6 +114,14 @@ export const resolvePoliceIncident = asyncHandler(async (req, res) => {
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
+    });
+  }
+
+  if (['pending_dispatch', 'dispatching', 'cancelled'].includes(incident.status)) {
+    return res.status(409).json({
+      success: false,
+      message: 'This incident is not available for dispatch changes.',
+      error: 'Conflict'
     });
   }
 
@@ -221,6 +239,14 @@ export const deletePoliceIncident = asyncHandler(async (req, res) => {
       success: false,
       message: 'Incident record not found',
       error: 'Not Found'
+    });
+  }
+
+  if (['pending_dispatch', 'dispatching'].includes(incident.status)) {
+    return res.status(409).json({
+      success: false,
+      message: 'Pending emergency alerts cannot be deleted before dispatch completes.',
+      error: 'Conflict'
     });
   }
 
