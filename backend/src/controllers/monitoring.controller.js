@@ -133,6 +133,7 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
     language: effectiveLanguage,
+    sessionId: sessionId || null,
     timeoutMs: 30000
   });
 
@@ -269,6 +270,9 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     confidence,
     transcript,
     riskScore,
+    threatLevel: analysis.threatLevel,
+    baseline: analysis.baseline,
+    calibrationStatus: analysis.calibrationStatus,
     autoIncident
   });
 });
@@ -430,6 +434,7 @@ export const stopSession = asyncHandler(async (req, res) => {
   }
 
   const deactivated = await MonitoringSession.deactivate(sessionId);
+  AIService.resetSession(sessionId).catch(() => {});
 
   console.log(`[MONITORING] Session ${sessionId} stopped for user ${userId}`);
 

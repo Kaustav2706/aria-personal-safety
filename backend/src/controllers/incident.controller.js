@@ -71,16 +71,20 @@ const isManual = !triggerType || triggerType === 'manual';
       const clientText = (req.body.audioTranscript || '').trim();
       finalTranscript = aiText || clientText || '';
 
+      let calculatedScore = 50;
+      if (effectiveTriggerType === 'audio') calculatedScore = 70;
+      if (effectiveTriggerType === 'motion') calculatedScore = 65;
+      const currentHour = new Date().getHours();
+      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
+      calculatedScore = Math.min(calculatedScore, 100);
+
       if (analysis.available) {
-        finalRiskScore = analysis.riskScore;
+        // AI analysis can amplify the risk score (e.g. distress detected),
+        // but explicit triggers (motion/audio SOS) maintain their deliberate baseline
+        finalRiskScore = Math.max(analysis.riskScore, calculatedScore);
       } else {
-        let calculatedScore = 50;
-        if (effectiveTriggerType === 'audio') calculatedScore = 70;
-        if (effectiveTriggerType === 'motion') calculatedScore = 65;
-        const currentHour = new Date().getHours();
-        if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
-        if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
-        finalRiskScore = Math.min(calculatedScore, 100);
+        finalRiskScore = calculatedScore;
       }
     }
   } else {

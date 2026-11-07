@@ -1,10 +1,10 @@
 import os
 import tempfile
 from pathlib import Path
+from threading import Lock
+from typing import Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from threading import Lock
-from typing import Optional
 from starlette.concurrency import run_in_threadpool
 
 # Load root .env and local .env for direct uvicorn starts. Values
@@ -87,6 +87,16 @@ def health_check():
 def get_metrics():
     return audio_metrics.get_stats()
 
+@app.post("/session/reset")
+def reset_session(
+    session_id: Optional[str] = Form(None),
+    x_internal_secret: Optional[str] = Header(None)
+):
+    if x_internal_secret != AI_ENGINE_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    tone.reset_session(session_id)
+    return {"status": "OK", "message": f"Session {session_id or 'all'} calibration reset."}
+
 @app.post("/analyze")
 async def analyze_incident_audio(
     file: UploadFile = File(...),
@@ -99,6 +109,7 @@ async def analyze_incident_audio(
     # Passed explicitly so Whisper doesn't have to auto-detect on short clips.
     # When null/omitted, Whisper auto-detects the language from the recording.
     language: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
     x_internal_secret: Optional[str] = Header(None),
     _analysis_slot: None = Depends(acquire_analysis_slot)
 ):
@@ -117,12 +128,14 @@ async def analyze_incident_audio(
     print(f"\n[AI ENGINE] Processing request for file: {file.filename}")
     print(f"[AI ENGINE] GPS Location: Lat {latitude}, Lng {longitude}")
     print(f"[AI ENGINE] Timestamp: {timestamp} | Isolated Area: {is_isolated}")
+    print(f"[AI ENGINE] Session ID: {session_id or 'N/A'}")
 
     # Save the uploaded file to a temporary file, and pass its path to whisper.transcribe_audio
     _, ext = os.path.splitext(file.filename or "audio.webm")
     temp_file_path = None
     whisper_result = None
     tone_conf = 0.0
+    tone_result = None
     try:
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as temp_file:
             content = await file.read()
@@ -162,7 +175,9 @@ async def analyze_incident_audio(
             tone.classify_voice_tone,
             temp_file_path,
             original_filename=file.filename,
-            distress_flagged=whisper_result.get("distress_flagged", False)
+            distress_flagged=whisper_result.get("distress_flagged", False),
+            session_id=session_id,
+            timestamp=timestamp
         )
 
         tone_measured = tone_result.get("measured", False) if isinstance(tone_result, dict) else (tone_result is not None)
@@ -193,48 +208,122 @@ async def analyze_incident_audio(
             except Exception as e:
                 print(f"[AI ENGINE] Error deleting temp file {temp_file_path}: {e}")
 
-    transcript = whisper_result["transcript"] if whisper_result else ""
-    whisper_flag = whisper_result["distress_flagged"] if whisper_result else False
-    whisper_conf = whisper_result["confidence"] if whisper_result else 0.0
-    threat_level = whisper_result.get("threatLevel", "SAFE") if whisper_result else "SAFE"
+    return evaluate_incident_analysis(
+        whisper_result=whisper_result,
+        tone_result=tone_result,
+        motion_anomaly=motion_anomaly,
+        is_isolated=is_isolated,
+        timestamp=timestamp,
+        scorer_instance=scorer
+    )
 
-    # Acoustic elevation: applied ONLY if tone was successfully measured
-    if tone_measured and tone_conf is not None:
-        if tone_conf >= 85.0:
-            threat_level = "CRITICAL"
-            print(f"[AI ENGINE] Threat level elevated to CRITICAL based on shouting volume (tone_conf={tone_conf}%)")
-        elif tone_conf >= 75.0 and threat_level != "CRITICAL":
-            threat_level = "WARNING"
-            print(f"[AI ENGINE] Threat level elevated to WARNING based on shouting volume (tone_conf={tone_conf}%)")
 
-    # Combined distress status check:
-    # If tone is missing, distress is determined solely by Whisper (missing is treated as missing, not false)
-    if tone_measured and tone_conf is not None:
-        is_distress = whisper_flag or tone_conf >= 75.0
-    else:
-        is_distress = whisper_flag
+def evaluate_incident_analysis(
+    whisper_result: Optional[dict],
+    tone_result: Optional[dict],
+    motion_anomaly: bool = False,
+    is_isolated: bool = False,
+    timestamp: Optional[str] = None,
+    scorer_instance: Optional[ContextScorer] = None
+) -> dict:
+    """
+    Evaluates multimodal threat indicators, applies volume-alone safety caps,
+    and calculates contextual risk score. This is the single production source of
+    truth for incident classification.
+    """
+    active_scorer = scorer_instance if scorer_instance is not None else scorer
 
-    # Combining confidence scores:
-    # "Anywhere downstream that combines scores should treat a missing input as missing, not as zero and not as a guess."
-    if tone_measured and tone_conf is not None:
-        # Both Whisper and Tone measurements are available
-        if whisper_flag and tone_conf >= 75.0:
-            combined_confidence = min(100.0, max(whisper_conf, tone_conf) + 10.0)
-        elif whisper_flag:
-            combined_confidence = max(whisper_conf, tone_conf)
-        elif tone_conf >= 75.0:
-            combined_confidence = tone_conf
+    tone_measured = tone_result.get("measured", False) if isinstance(tone_result, dict) else False
+    tone_conf = tone_result.get("confidence") if isinstance(tone_result, dict) else None
+
+    transcript = whisper_result.get("transcript", "") if whisper_result else ""
+    whisper_flag = bool(
+        whisper_result.get("distress_flagged", False) or
+        whisper_result.get("distress", False)
+    ) if whisper_result else False
+    whisper_conf = float(whisper_result.get("confidence", 0.0)) if whisper_result else 0.0
+    raw_whisper_threat = (
+        whisper_result.get("threatLevel") or
+        whisper_result.get("threat_level") or
+        "SAFE"
+    ) if whisper_result else "SAFE"
+    threat_level = raw_whisper_threat
+
+    # ── Independent Distress Validation ───────────────────────────────────────
+    # Truly independent distress signals:
+    # 1. Linguistic distress keywords confirmed by Whisper (whisper_flag == True)
+    # 2. Independent threat rating from speech analysis (CONCERN, WARNING, CRITICAL)
+    #
+    # CRITICAL SAFETY PRINCIPLE:
+    # - tone_conf reflects RMS loudness relative to baseline, NOT confirmed distress.
+    #   Loudness alone can be caused by environmental sounds (thunder, traffic, slamming doors).
+    # - Motion anomaly reflects physical movement/acceleration, NOT confirmed distress.
+    #   Movement alone can be caused by jogging, running, jumping, or phone handling.
+    # - Neither loudness alone, motion alone, nor the combination of loudness + motion
+    #   constitutes independently validated distress.
+    has_validated_distress = bool(
+        whisper_flag or
+        raw_whisper_threat in ["CONCERN", "WARNING", "CRITICAL"]
+    )
+
+    is_shouting_volume = bool(
+        tone_measured and tone_conf is not None and tone_conf >= 75.0
+    )
+
+    # ── Threat Level & Distress Evaluation ───────────────────────────────────
+    if has_validated_distress:
+        # Confirmed linguistic or independent distress signal is present.
+        # Genuine shouting (high acoustic volume) and motion anomaly act as valid emergency amplifiers.
+        if is_shouting_volume:
+            if tone_conf >= 85.0 or motion_anomaly:
+                threat_level = "CRITICAL"
+                print(f"[AI ENGINE] Threat level elevated to CRITICAL based on genuine shouting + validated distress (tone_conf={tone_conf}%)")
+            elif threat_level not in ["WARNING", "CRITICAL"]:
+                threat_level = "WARNING"
+                print(f"[AI ENGINE] Threat level elevated to WARNING based on shouting + validated distress (tone_conf={tone_conf}%)")
         else:
-            combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
+            threat_level = raw_whisper_threat if raw_whisper_threat in ["CONCERN", "WARNING", "CRITICAL"] else "WARNING"
+        is_distress = True
+
     else:
-        # Tone measurement failed: treat tone input as MISSING (not zero, not guessed)
-        # Confidence is derived strictly from the available Whisper input
-        print("[AI ENGINE] Tone measurement failed/missing. Treating tone input as missing (not zero, not guessed).")
-        combined_confidence = whisper_conf
+        # NO independently validated distress (audio is calm speech, silence, or non-speech background).
+        # Neither high volume (environmental noise) nor motion anomaly (running/movement)
+        # nor the combination of both can be treated as definitive proof of an emergency.
+        is_distress = False
+
+        if is_shouting_volume:
+            # High acoustic volume without distress speech: record as WARNING for acoustic monitoring,
+            # but NEVER elevate to CRITICAL and NEVER confirm distress.
+            threat_level = "WARNING"
+            print(f"[AI ENGINE] Loud acoustic volume detected without speech distress (environmental noise). Threat level capped at WARNING.")
+        else:
+            threat_level = "SAFE"
+
+    # ── Combining Confidence Scores ──────────────────────────────────────────
+    if has_validated_distress:
+        if tone_measured and tone_conf is not None:
+            if is_shouting_volume:
+                combined_confidence = min(100.0, max(whisper_conf, tone_conf) + 10.0)
+            else:
+                combined_confidence = max(whisper_conf, tone_conf)
+        else:
+            combined_confidence = whisper_conf
+    else:
+        # No validated speech distress
+        if is_shouting_volume:
+            # Volume alone / environmental noise: reflects acoustic loudness, capped at 75
+            combined_confidence = min(75.0, tone_conf) if tone_conf is not None else 0.0
+        elif motion_anomaly:
+            calm_conf = whisper_conf if whisper_conf > 0 else (tone_conf if (tone_measured and tone_conf is not None) else 0.0)
+            combined_confidence = min(50.0, float(calm_conf))
+        elif tone_measured and tone_conf is not None:
+            combined_confidence = round((whisper_conf + tone_conf) / 2.0, 2)
+        else:
+            combined_confidence = whisper_conf
 
     # 3. Context Scorer calculation using weights:
     # Distress Confidence (55%), Threat Level (25%), Isolation (10%), Night Time (5%), Escalation (5%)
-    risk_rating = scorer.calculate_risk_score(
+    risk_rating = active_scorer.calculate_risk_score(
         audio_distress=is_distress,
         is_isolated=is_isolated,
         has_motion_anomaly=motion_anomaly,
@@ -243,6 +332,33 @@ async def analyze_incident_audio(
         threat_level=threat_level,
         transcript=transcript
     )
+
+    # ── Safety Boundaries: Explicit Protection for Unsafe Combinations ──────────
+    # Automatic monitoring (POST /api/monitoring/chunk) creates an incident when:
+    #   (distress == True and confidence >= 60) OR riskScore >= 60
+    #
+    # We explicitly identify the four non-emergency combinations that must NEVER
+    # cross 50% risk or trigger automatic incident creation:
+    #   1. Loudness alone (high acoustic volume/RMS without validated distress)
+    #   2. Motion anomaly alone (sensor movement/running/handling without distress)
+    #   3. Loudness + motion anomaly (ambient noise + movement without distress)
+    #   4. Contextual risk alone (nighttime / isolated location without audio/movement/distress)
+    is_loudness_alone = bool(is_shouting_volume and not motion_anomaly and not has_validated_distress)
+    is_motion_alone = bool(motion_anomaly and not is_shouting_volume and not has_validated_distress)
+    is_loudness_and_motion = bool(is_shouting_volume and motion_anomaly and not has_validated_distress)
+    is_context_alone = bool(not is_shouting_volume and not motion_anomaly and not has_validated_distress)
+
+    is_unsafe_combination = (
+        is_loudness_alone or
+        is_motion_alone or
+        is_loudness_and_motion or
+        is_context_alone
+    )
+    if is_unsafe_combination:
+        max_unvalidated_score = 50
+        if risk_rating > max_unvalidated_score:
+            print(f"[AI ENGINE] Capping risk score from {risk_rating}% to {max_unvalidated_score}% (unsafe combination: loudness_alone={is_loudness_alone}, motion_alone={is_motion_alone}, noise+motion={is_loudness_and_motion}, context_alone={is_context_alone})")
+            risk_rating = max_unvalidated_score
 
     print(f"[AI ENGINE] Result -> distress={is_distress}, conf={combined_confidence}%, risk={risk_rating}%, threatLevel={threat_level}\n")
 
@@ -255,7 +371,9 @@ async def analyze_incident_audio(
         "threatLevel": str(threat_level),
         "threat_level": str(threat_level),
         "acoustic_measured": bool(tone_measured),
-        "tone_confidence": float(tone_conf) if (tone_measured and tone_conf is not None) else None
+        "tone_confidence": float(tone_conf) if (tone_measured and tone_conf is not None) else None,
+        "baseline": tone_result.get("baseline") if isinstance(tone_result, dict) else None,
+        "calibration_status": tone_result.get("calibration_status") if isinstance(tone_result, dict) else "unavailable"
     }
 
 if __name__ == "__main__":
