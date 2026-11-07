@@ -48,7 +48,7 @@ class AIRequestQueue {
 const aiRequestQueue = new AIRequestQueue(parseInt(process.env.AI_CONCURRENCY_LIMIT, 10) || 3);
 
 export class AIService {
-  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false, motionAnomaly = false, language = null, timeoutMs = DEFAULT_AI_TIMEOUT_MS }) {
+  static async analyzeAudioIncident({ fileBuffer, fileName, latitude, longitude, isIsolated = false, motionAnomaly = false, language = null, sessionId = null, timeoutMs = DEFAULT_AI_TIMEOUT_MS }) {
     console.log(`[AI SERVICE INTEGRATOR] Dispatching audio to AI Engine: ${fileName}`);
 
     try {
@@ -61,6 +61,7 @@ export class AIService {
       formData.append('motion_anomaly', String(motionAnomaly));
       formData.append('timestamp', new Date().toISOString());
       if (language) formData.append('language', language);
+      if (sessionId) formData.append('session_id', sessionId);
 
       const res = await aiRequestQueue.enqueue(() =>
         axios.post(`${AI_ENGINE_URL}/analyze`, formData, {
@@ -80,7 +81,9 @@ export class AIService {
         confidence: res.data.confidence,
         transcript: res.data.transcript,
         riskScore: res.data.risk_score ?? res.data.riskScore ?? 0,
-        threatLevel: res.data.threat_level || res.data.threatLevel || 'SAFE'
+        threatLevel: res.data.threat_level || res.data.threatLevel || 'SAFE',
+        baseline: res.data.baseline ?? null,
+        calibrationStatus: res.data.calibration_status || 'unavailable'
       };
     } catch (err) {
       console.warn(`[AI SERVICE INTEGRATOR] AI analysis unavailable: ${err.message}`);
@@ -92,6 +95,23 @@ export class AIService {
         riskScore: null,
         message: 'AI analysis unavailable. Automatic audio detection is not running.'
       };
+    }
+  }
+
+  static async resetSession(sessionId) {
+    try {
+      const formData = new FormData();
+      if (sessionId) formData.append('session_id', sessionId);
+      await axios.post(`${AI_ENGINE_URL}/session/reset`, formData, {
+        headers: {
+          ...formData.getHeaders(),
+          'X-Internal-Secret': process.env.AI_ENGINE_SECRET
+        },
+        timeout: 5000
+      });
+      console.log(`[AI SERVICE INTEGRATOR] Calibration reset for session: ${sessionId || 'all'}`);
+    } catch (err) {
+      console.warn(`[AI SERVICE INTEGRATOR] Could not reset session calibration: ${err.message}`);
     }
   }
 
