@@ -57,7 +57,8 @@ export default function MonitoringView({
   const recordingStartTimeRef = useRef<number>(0);
   const transcriptRef = useRef<string>('');
   const confidenceRef = useRef<number>(0);
-  const speechRecognitionRef = useRef<any>(null);
+  // N24: speechRecognitionRef removed — browser Speech Recognition was replaced by
+  // the existing backend Whisper transcription pipeline (transcript arrives via uploadChunk).
   const consecutiveHighCountRef = useRef<number>(0);
 
   // Extracts the EBML container and tracks header from the initial WebM slice
@@ -94,10 +95,7 @@ export default function MonitoringView({
     autoSosTriggeredRef.current = true;
     console.log(`[MONITORING] Monitor reached threshold (${source}) — packaging voice evidence & triggering Auto SOS...`);
 
-    // Stop live browser speech recognition if running
-    if (speechRecognitionRef.current) {
-      try { speechRecognitionRef.current.stop(); } catch {}
-    }
+    // Stop browser speech recognition if it was running (N24: removed — no longer used)
 
     // Ensure recorder captures at least 2 seconds so the distress call isn't clipped
     const elapsed = Date.now() - recordingStartTimeRef.current;
@@ -374,34 +372,9 @@ export default function MonitoringView({
       // NEVER stopped/restarted between chunks, avoiding dropped microphone frames.
       mediaRecorder.start(1000);
 
-      // Start Web Speech API in parallel for instant client-side transcription
-      try {
-        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRec) {
-          const rec = new SpeechRec();
-          rec.continuous = true;
-          rec.interimResults = true;
-          rec.lang = 'en-US';
-          rec.onresult = (event: any) => {
-            let combined = '';
-            for (let i = 0; i < event.results.length; ++i) {
-              combined += event.results[i][0].transcript + ' ';
-            }
-            const clean = combined.trim();
-            if (clean) {
-              transcriptRef.current = clean;
-              setTranscript(clean);
-            }
-          };
-          rec.onerror = (e: any) => {
-            console.warn('[MONITORING] Web Speech API notice:', e.error);
-          };
-          rec.start();
-          speechRecognitionRef.current = rec;
-        }
-      } catch (speechErr) {
-        console.warn('[MONITORING] Web Speech API not supported:', speechErr);
-      }
+      // N24: Browser-native Web Speech API has been removed.
+      // Transcription is handled exclusively by the backend Whisper service.
+      // Transcripts arrive via uploadChunk() → data.transcript and are displayed below.
 
       // 4. Overlapping window uploader:
       // Sequential scheduling: never sends the next chunk until the previous one has come back or timed out.
@@ -561,10 +534,7 @@ export default function MonitoringView({
         if (data.autoIncident) {
           console.log('[MONITORING] Auto-incident detected by AI:', data.autoIncident);
 
-          if (speechRecognitionRef.current) {
-            try { speechRecognitionRef.current.stop(); } catch {}
-            speechRecognitionRef.current = null;
-          }
+          // N24: Speech recognition ref removed — no browser speech to stop here
 
           // Synchronously release audio/mic tracks immediately
           isMonitoringActiveRef.current = false;
@@ -646,10 +616,7 @@ export default function MonitoringView({
     }
     if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
 
-    if (speechRecognitionRef.current) {
-      try { speechRecognitionRef.current.stop(); } catch {}
-      speechRecognitionRef.current = null;
-    }
+    // N24: Browser speech recognition has been removed; nothing to stop here.
 
     // Stop MediaRecorder
     if (mediaRecorderRef.current?.state === 'recording') {

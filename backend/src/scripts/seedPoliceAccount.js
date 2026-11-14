@@ -6,13 +6,17 @@
  *
  * Usage:
  *   cd backend
- *   node src/scripts/seedPoliceAccount.js
- *
- * Override defaults with environment variables:
  *   DISPATCHER_EMAIL=dispatch@police.gov \
- *   DISPATCHER_PASSWORD=Str0ngP@ssw0rd! \
+ *   DISPATCHER_PASSWORD=<strong-password> \
  *   DISPATCHER_NAME="Dispatch Command" \
  *   node src/scripts/seedPoliceAccount.js
+ *
+ * REQUIRED environment variables:
+ *   DISPATCHER_PASSWORD  — the account password (no default; script refuses to run without it)
+ *
+ * Optional environment variables:
+ *   DISPATCHER_EMAIL     — account email          (default: dispatch@police.local)
+ *   DISPATCHER_NAME      — display name           (default: Dispatch Command)
  */
 
 import bcrypt from 'bcryptjs';
@@ -22,9 +26,24 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const EMAIL    = process.env.DISPATCHER_EMAIL    || 'dispatch@police.local';
-const PASSWORD = process.env.DISPATCHER_PASSWORD || 'ChangeMe123!';
-const NAME     = process.env.DISPATCHER_NAME     || 'Dispatch Command';
+// ── N23: Require an explicit password — no default, no fallback ──────────────
+const rawPassword = process.env.DISPATCHER_PASSWORD;
+
+if (!rawPassword || !rawPassword.trim()) {
+  console.error(
+    '❌ DISPATCHER_PASSWORD environment variable is required and must not be empty.\n' +
+    '   Set it before running this script:\n\n' +
+    '     DISPATCHER_EMAIL=dispatch@police.gov \\\n' +
+    '     DISPATCHER_PASSWORD=<your-strong-password> \\\n' +
+    '     node src/scripts/seedPoliceAccount.js\n'
+  );
+  process.exit(1);
+}
+
+const EMAIL    = process.env.DISPATCHER_EMAIL || 'dispatch@police.local';
+const NAME     = process.env.DISPATCHER_NAME  || 'Dispatch Command';
+// Keep the trimmed password in a local constant; never log or expose it.
+const PASSWORD = rawPassword.trim();
 
 async function seed() {
   await initializeDatabase();
@@ -52,7 +71,7 @@ async function seed() {
   console.log('   Email   :', dispatcher.email);
   console.log('   Role    :', dispatcher.role);
   console.log('   ID      :', dispatcher.id);
-  console.log('\n⚠️  Change the default password immediately after first login.\n');
+  console.log('\n   The supplied password has been hashed and stored. Keep it safe.\n');
 
   if (dbMode === 'postgres') {
     await pool.end();
