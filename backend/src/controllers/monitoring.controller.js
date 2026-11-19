@@ -118,7 +118,8 @@ export const analyzeChunk = asyncHandler(async (req, res) => {
     isIsolated: isIsolated === 'true' || isIsolated === true,
     motionAnomaly: hasMotionAnomaly,
     language: language || 'en',
-    timeoutMs: 30000
+    timeoutMs: 30000,
+    userId: userId || null
   });
 
   const { distress, confidence, transcript, riskScore } = analysis;

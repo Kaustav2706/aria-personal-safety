@@ -16,7 +16,26 @@ if (!fs.existsSync(EVIDENCE_DIR)) {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'aria_secure_jwt_secret_key_change_me';
-const EVIDENCE_SECRET = crypto.createHash('sha256').update(JWT_SECRET + '_evidence_vault_key').digest();
+
+// ── Evidence Encryption Key ───────────────────────────────────────────────────
+// EVIDENCE_KEY must be supplied independently of JWT_SECRET.
+// Rotating JWT_SECRET will NOT break previously stored vault files.
+// If EVIDENCE_KEY is missing at runtime the service logs a loud warning but
+// still derives a key from JWT_SECRET for backward-compatibility with any
+// existing local vault files.  Set EVIDENCE_KEY in production.
+const _rawEvidenceKey = process.env.EVIDENCE_KEY;
+if (!_rawEvidenceKey) {
+  console.warn(
+    '[STORAGE SERVICE] WARNING: EVIDENCE_KEY env var is not set. ' +
+    'Falling back to JWT_SECRET-derived key for local vault encryption. ' +
+    'Set EVIDENCE_KEY to an independent secret so rotating JWT_SECRET does not ' +
+    'make stored evidence unreadable.'
+  );
+}
+const EVIDENCE_SECRET = crypto
+  .createHash('sha256')
+  .update(_rawEvidenceKey ? _rawEvidenceKey : JWT_SECRET + '_evidence_vault_key')
+  .digest();
 
 /**
  * StorageService
@@ -45,7 +64,7 @@ export class StorageService {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       bucket: process.env.S3_BUCKET_NAME || process.env.AWS_S3_BUCKET,
-      region: process.env.AWS_REGION || 'us-east-1'
+      region: process.env.AWS_REGION || 'ap-south-1'
     };
   }
 
@@ -101,17 +120,17 @@ export class StorageService {
     const localVaultPath = path.join(EVIDENCE_DIR, `${fileName}.vault`);
     fs.writeFileSync(localVaultPath, vaultPayload);
 
-    // Save metadata for retention / automatic expiry check
-    const metaPath = path.join(EVIDENCE_DIR, `${fileName}.meta.json`);
-    fs.writeFileSync(
-      metaPath,
-      JSON.stringify({
-        fileName,
-        mimeType,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30-day retention
-      }),
-      'utf-8'
+    // ── Local vault WARNING ───────────────────────────────────────────────────
+    // Local vault files live on ephemeral disk (Render, Railway, etc.) and will
+    // be lost on restart/deploy.  Configure S3 credentials (or Cloudflare R2,
+    // which is S3-compatible) to persist evidence durably.  Set a 30-day
+    // lifecycle expiry rule directly on the S3/R2 bucket — the application does
+    // NOT delete files automatically.
+    console.warn(
+      '[STORAGE SERVICE] WARNING: Evidence written to local disk vault. ' +
+      'Files will be LOST on the next deploy or container restart. ' +
+      'Configure S3_BUCKET_NAME / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (or ' +
+      'Cloudflare R2 equivalents) to persist evidence durably.'
     );
 
     const canonicalRef = `evidence://${fileName}`;

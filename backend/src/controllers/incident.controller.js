@@ -56,7 +56,8 @@ export const createIncident = asyncHandler(async (req, res) => {
       isIsolated: isIsolated === 'true' || isIsolated === true,
       motionAnomaly: hasMotionAnomaly,
       // Let Whisper identify the spoken language from the recording.
-      language: null
+      language: null,
+      userId: req.userId || null
     });
 
     analysisAvailable = analysis.available;
