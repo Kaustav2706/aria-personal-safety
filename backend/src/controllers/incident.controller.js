@@ -1,380 +1,439 @@
-import { Incident } from '../models/Incident.model.js';
-import { User } from '../models/User.model.js';
-import { ReportService } from '../services/reportService.js';
-import { streamReportForIncident } from './report.controller.js';
-import { AIService } from '../services/aiService.js';
-import { AudioEvidenceService } from '../services/audioEvidenceService.js';
-import { StorageService } from '../services/storageService.js';
-import { dispatchTieredAlerts } from '../config/alertConfig.js';
-import { asyncHandler } from '../middleware/asyncHandler.js';
-import { pool, dbMode, memoryStore, saveMemoryStore } from '../config/db.js';
-import path from 'path';
-import crypto from 'crypto';
+import {Incident} from "../models/Incident.model.js";
+import {User} from "../models/User.model.js";
+import {ReportService} from "../services/reportService.js";
+import {streamReportForIncident} from "./report.controller.js";
+import {AIService} from "../services/aiService.js";
+import {AudioEvidenceService} from "../services/audioEvidenceService.js";
+import {StorageService} from "../services/storageService.js";
+import {dispatchTieredAlerts} from "../config/alertConfig.js";
+import {asyncHandler} from "../middleware/asyncHandler.js";
+import {pool, dbMode, memoryStore, saveMemoryStore} from "../config/db.js";
+import path from "path";
+import crypto from "crypto";
 
 // Fixed high risk score assigned to all manual SOS requests (person deliberately asking for help).
 // Independent of client payload and immune to random jitter or speech distress model false negatives.
 export const MANUAL_SOS_RISK_SCORE = parseInt(process.env.MANUAL_SOS_RISK_SCORE, 10) || 90;
 
 export const createIncident = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { latitude, longitude, triggerType, isIsolated, motionAnomaly, motion_anomaly, location_unavailable, locationUnavailable } = req.body;
-  const hasMotionAnomaly = motionAnomaly === 'true' || motionAnomaly === true || motion_anomaly === 'true' || motion_anomaly === true;
+    const userId = req.userId;
+    const {
+        latitude,
+        longitude,
+        triggerType,
+        isIsolated,
+        motionAnomaly,
+        motion_anomaly,
+        location_unavailable,
+        locationUnavailable,
+    } = req.body;
+    const hasMotionAnomaly =
+        motionAnomaly === "true" || motionAnomaly === true || motion_anomaly === "true" || motion_anomaly === true;
 
-  const isLocationUnavailable = location_unavailable === 'true' || location_unavailable === true ||
-    locationUnavailable === 'true' || locationUnavailable === true ||
-    latitude === undefined || latitude === null || latitude === '' ||
-    (parseFloat(latitude) === 0 && parseFloat(longitude) === 0);
+    const isLocationUnavailable =
+        location_unavailable === "true" ||
+        location_unavailable === true ||
+        locationUnavailable === "true" ||
+        locationUnavailable === true ||
+        latitude === undefined ||
+        latitude === null ||
+        latitude === "" ||
+        (parseFloat(latitude) === 0 && parseFloat(longitude) === 0);
 
-  const incidentLat = isLocationUnavailable ? null : (parseFloat(latitude) || null);
-  const incidentLng = isLocationUnavailable ? null : (parseFloat(longitude) || null);
+    const incidentLat = isLocationUnavailable ? null : parseFloat(latitude) || null;
+    const incidentLng = isLocationUnavailable ? null : parseFloat(longitude) || null;
 
-const isManual = !triggerType || triggerType === 'manual';
-  const effectiveTriggerType = isManual ? 'manual' : triggerType;
+    const isManual = !triggerType || triggerType === "manual";
+    const effectiveTriggerType = isManual ? "manual" : triggerType;
 
-  const user = await User.findById(userId);
-  if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: 'User registration details not found.',
-      error: 'Not Found'
-    });
-  }
+    const user = await User.findById(userId);
+    if (!user) {
+        return res.status(404).json({
+            success: false,
+            message: "User registration details not found.",
+            error: "Not Found",
+        });
+    }
 
-  let finalTranscript = '';
-  let finalRiskScore = isManual ? MANUAL_SOS_RISK_SCORE : 50;
-  let analysisAvailable = true;
-  let audioUrl = null;
-   
-  // 1. Process voice audio file upload if present
-  if (req.file) {
-    console.log(`[INCIDENT CONTROLLER] Audio file received: ${req.file.originalname}`);
-    if (isManual) {
-      // A deliberate manual SOS must not wait for transcription or AI health.
-      // Preserve any browser transcript, but dispatch through the immediate path.
-      finalTranscript = (req.body.audioTranscript || '').trim();
-      finalRiskScore = MANUAL_SOS_RISK_SCORE;
+    let finalTranscript = "";
+    let finalRiskScore = isManual ? MANUAL_SOS_RISK_SCORE : 50;
+    let analysisAvailable = true;
+    let audioUrl = null;
+
+    // 1. Process voice audio file upload if present
+    if (req.file) {
+        console.log(`[INCIDENT CONTROLLER] Audio file received: ${req.file.originalname}`);
+        if (isManual) {
+            // A deliberate manual SOS must not wait for transcription or AI health.
+            // Preserve any browser transcript, but dispatch through the immediate path.
+            finalTranscript = (req.body.audioTranscript || "").trim();
+            finalRiskScore = MANUAL_SOS_RISK_SCORE;
+        } else {
+            const analysis = await AIService.analyzeAudioIncident({
+                fileBuffer: req.file.buffer,
+                fileName: req.file.originalname,
+                latitude: incidentLat || 0.0,
+                longitude: incidentLng || 0.0,
+                isIsolated: isIsolated === "true" || isIsolated === true,
+                motionAnomaly: hasMotionAnomaly,
+                // Pass the user's preferred language so Whisper doesn't silently fall back to English.
+                // null/undefined => let Whisper auto-detect from the recording.
+                language: user.language || null,
+            });
+
+            analysisAvailable = analysis.available;
+            const aiText = (analysis.transcript || "").trim();
+            const clientText = (req.body.audioTranscript || "").trim();
+            finalTranscript = aiText || clientText || "";
+
+            let calculatedScore = 50;
+            if (effectiveTriggerType === "audio") calculatedScore = 70;
+            if (effectiveTriggerType === "motion") calculatedScore = 65;
+            const currentHour = new Date().getHours();
+            if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+            if (isIsolated === "true" || isIsolated === true) calculatedScore += 10;
+            calculatedScore = Math.min(calculatedScore, 100);
+
+            if (analysis.available) {
+                // AI analysis can amplify the risk score (e.g. distress detected),
+                // but explicit triggers (motion/audio SOS) maintain their deliberate baseline
+                finalRiskScore = Math.max(analysis.riskScore, calculatedScore);
+            } else {
+                finalRiskScore = calculatedScore;
+            }
+        }
     } else {
-      const analysis = await AIService.analyzeAudioIncident({
-        fileBuffer: req.file.buffer,
-        fileName: req.file.originalname,
-        latitude: incidentLat || 0.0,
-        longitude: incidentLng || 0.0,
-        isIsolated: isIsolated === 'true' || isIsolated === true,
-        motionAnomaly: hasMotionAnomaly,
-        // Pass the user's preferred language so Whisper doesn't silently fall back to English.
-        // null/undefined => let Whisper auto-detect from the recording.
-        language: user.language || null
-      });
+        if (isManual) {
+            // Manual SOS is a person deliberately asking for help — fixed high score, ignoring any score from app
+            finalRiskScore = MANUAL_SOS_RISK_SCORE;
+        } else {
+            let calculatedScore = 50;
+            if (effectiveTriggerType === "audio") calculatedScore = 70;
+            if (effectiveTriggerType === "motion") calculatedScore = 65;
 
-      analysisAvailable = analysis.available;
-      const aiText = (analysis.transcript || '').trim();
-      const clientText = (req.body.audioTranscript || '').trim();
-      finalTranscript = aiText || clientText || '';
+            const currentHour = new Date().getHours();
+            if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
+            if (isIsolated === "true" || isIsolated === true) calculatedScore += 10;
 
-      let calculatedScore = 50;
-      if (effectiveTriggerType === 'audio') calculatedScore = 70;
-      if (effectiveTriggerType === 'motion') calculatedScore = 65;
-      const currentHour = new Date().getHours();
-      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
-      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
-      calculatedScore = Math.min(calculatedScore, 100);
-
-      if (analysis.available) {
-        // AI analysis can amplify the risk score (e.g. distress detected),
-        // but explicit triggers (motion/audio SOS) maintain their deliberate baseline
-        finalRiskScore = Math.max(analysis.riskScore, calculatedScore);
-      } else {
-        finalRiskScore = calculatedScore;
-      }
+            finalRiskScore = Math.min(calculatedScore, 100);
+        }
+        finalTranscript = req.body.audioTranscript || "";
     }
-  } else {
-    if (isManual) {
-      // Manual SOS is a person deliberately asking for help — fixed high score, ignoring any score from app
-      finalRiskScore = MANUAL_SOS_RISK_SCORE;
-    } else {
-      let calculatedScore = 50;
-      if (effectiveTriggerType === 'audio') calculatedScore = 70;
-      if (effectiveTriggerType === 'motion') calculatedScore = 65;
 
-      const currentHour = new Date().getHours();
-      if (currentHour >= 20 || currentHour < 5) calculatedScore += 10;
-      if (isIsolated === 'true' || isIsolated === true) calculatedScore += 10;
-
-      finalRiskScore = Math.min(calculatedScore, 100);
+    if (req.file) {
+        try {
+            const originalExtension = path.extname(req.file.originalname || "").toLowerCase();
+            const extension = [".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".webm"].includes(originalExtension)
+                ? originalExtension
+                : ".webm";
+            const fileName = `${crypto.randomUUID()}${extension}`;
+            audioUrl = await StorageService.uploadEvidence(
+                fileName,
+                req.file.buffer,
+                req.file.mimetype || "audio/webm"
+            );
+        } catch (err) {
+            console.error("[INCIDENT CONTROLLER] Failed to persist audio evidence via StorageService:", err.message);
+        }
     }
-    finalTranscript = req.body.audioTranscript || '';
-  }
 
-  if (req.file) {
-    try {
-      const originalExtension = path.extname(req.file.originalname || '').toLowerCase();
-      const extension = ['.wav', '.mp3', '.m4a', '.mp4', '.ogg', '.webm'].includes(originalExtension) ? originalExtension : '.webm';
-      const fileName = `${crypto.randomUUID()}${extension}`;
-      audioUrl = await StorageService.uploadEvidence(fileName, req.file.buffer, req.file.mimetype || 'audio/webm');
-    } catch (err) {
-      console.error('[INCIDENT CONTROLLER] Failed to persist audio evidence via StorageService:', err.message);
-    }
-  }
-
-  // 2. Save incident to PostgreSQL — record that it was manual
-  const incident = await Incident.create({
-    userId,
-    status: 'active',
-    triggerType: effectiveTriggerType,
-    latitude: incidentLat,
-    longitude: incidentLng,
-    riskScore: finalRiskScore,
-    audioTranscript: finalTranscript,
-    audioUrl
-  });
-
-  // 3. Notify Emergency Contacts and Police Dispatch via tiered thresholds
-  const alertResults = await dispatchTieredAlerts({ user, incident });
-
-  // dispatchTieredAlerts automatically persists per-recipient delivery outcomes on the incident record.
-
-  // 4. Emit live update through Sockets
-  const io = req.app.get('io');
-  if (io) {
-    io.emit('incidentCreated', {
-      ...incident,
-      userName: user.name,
-      userPhone: user.phone
+    // 2. Save incident to PostgreSQL — record that it was manual
+    const incident = await Incident.create({
+        userId,
+        status: "active",
+        triggerType: effectiveTriggerType,
+        latitude: incidentLat,
+        longitude: incidentLng,
+        riskScore: finalRiskScore,
+        audioTranscript: finalTranscript,
+        audioUrl,
     });
-  }
+    // Transcribe manual SOS audio in the background.
+    // Never delay emergency alert dispatch for transcription.
+    if (isManual && req.file) {
+        const audioBuffer = Buffer.from(req.file.buffer);
+        const audioFileName = req.file.originalname;
+        console.log("[N6] Manual SOS transcription language:", user.language || "AUTO-DETECT");
+        void (async () => {
+            try {
+                const analysis = await AIService.analyzeAudioIncident({
+                    fileBuffer: audioBuffer,
+                    fileName: audioFileName,
+                    latitude: incidentLat || 0.0,
+                    longitude: incidentLng || 0.0,
+                    isIsolated: false,
+                    motionAnomaly: false,
+                    language: user.language || null,
+                });
 
-  return res.status(201).json({
-    success: true,
-    message: isManual
-      ? 'SOS trigger processed and emergency alerts dispatched'
-      : (analysisAvailable
-          ? 'Incident registered and safety protocols deployed'
-          : 'Incident registered. AI analysis unavailable; automatic audio detection is not running.'),
-    analysisAvailable,
-    incident
-  });
+                const transcript = (analysis.transcript || "").trim();
+
+                if (transcript) {
+                    await Incident.update(incident.id, {
+                        audioTranscript: transcript,
+                    });
+
+                    console.log(`[INCIDENT CONTROLLER] Manual SOS transcription saved for incident ${incident.id}`);
+                }
+            } catch (err) {
+                console.warn(
+                    "[INCIDENT CONTROLLER] Manual SOS transcription failed; emergency dispatch is unaffected:",
+                    err.message
+                );
+            }
+        })();
+    }
+    // 3. Notify Emergency Contacts and Police Dispatch via tiered thresholds
+    const alertResults = await dispatchTieredAlerts({user, incident});
+
+    // dispatchTieredAlerts automatically persists per-recipient delivery outcomes on the incident record.
+
+    // 4. Emit live update through Sockets
+    const io = req.app.get("io");
+    if (io) {
+        io.emit("incidentCreated", {
+            ...incident,
+            userName: user.name,
+            userPhone: user.phone,
+        });
+    }
+
+    return res.status(201).json({
+        success: true,
+        message: isManual
+            ? "SOS trigger processed and emergency alerts dispatched"
+            : analysisAvailable
+            ? "Incident registered and safety protocols deployed"
+            : "Incident registered. AI analysis unavailable; automatic audio detection is not running.",
+        analysisAvailable,
+        incident,
+    });
 });
 
 export const getIncidents = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const list = (await Incident.findByUserId(userId)).filter((incident) =>
-    !['pending_dispatch', 'dispatching', 'cancelled'].includes(incident.status)
-  );
-  
-  const enrichedList = await Promise.all(list.map(async (inc) => {
-    const user = await User.findById(inc.userId);
-    let signedAudioUrl = inc.audioUrl;
-    if (inc.audioUrl) {
-      signedAudioUrl = await StorageService.getSignedUrl(inc.audioUrl);
-    }
-    return {
-      ...inc,
-      audioUrl: signedAudioUrl,
-      userName: user ? user.name : 'Unknown User',
-      userPhone: user ? user.phone : 'N/A'
-    };
-  }));
+    const userId = req.userId;
+    const list = (await Incident.findByUserId(userId)).filter(
+        (incident) => !["pending_dispatch", "dispatching", "cancelled"].includes(incident.status)
+    );
 
-  return res.status(200).json({
-    success: true,
-    incidents: enrichedList
-  });
+    const enrichedList = await Promise.all(
+        list.map(async (inc) => {
+            const user = await User.findById(inc.userId);
+            let signedAudioUrl = inc.audioUrl;
+            if (inc.audioUrl) {
+                signedAudioUrl = await StorageService.getSignedUrl(inc.audioUrl);
+            }
+            return {
+                ...inc,
+                audioUrl: signedAudioUrl,
+                userName: user ? user.name : "Unknown User",
+                userPhone: user ? user.phone : "N/A",
+            };
+        })
+    );
+
+    return res.status(200).json({
+        success: true,
+        incidents: enrichedList,
+    });
 });
 
 export const getIncidentById = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { id } = req.params;
-  const incident = await Incident.findById(id);
+    const userId = req.userId;
+    const {id} = req.params;
+    const incident = await Incident.findById(id);
 
-  if (!incident) {
-    return res.status(404).json({
-      success: false,
-      message: 'Incident record not found',
-      error: 'Not Found'
+    if (!incident) {
+        return res.status(404).json({
+            success: false,
+            message: "Incident record not found",
+            error: "Not Found",
+        });
+    }
+
+    // Verify ownership
+    if (incident.userId !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: "Access denied. You do not own this incident.",
+            error: "Forbidden",
+        });
+    }
+
+    const user = await User.findById(incident.userId);
+    const history = await Incident.getLocationHistory(id);
+
+    let signedAudioUrl = incident.audioUrl;
+    if (incident.audioUrl) {
+        signedAudioUrl = await StorageService.getSignedUrl(incident.audioUrl);
+    }
+
+    return res.status(200).json({
+        success: true,
+        incident: {
+            ...incident,
+            audioUrl: signedAudioUrl,
+        },
+        user: user
+            ? {name: user.name, phone: user.phone, email: user.email, emergencyContacts: user.emergencyContacts}
+            : null,
+        locationHistory: history || [],
     });
-  }
-
-  // Verify ownership
-  if (incident.userId !== userId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. You do not own this incident.',
-      error: 'Forbidden'
-    });
-  }
-
-  const user = await User.findById(incident.userId);
-  const history = await Incident.getLocationHistory(id);
-
-  let signedAudioUrl = incident.audioUrl;
-  if (incident.audioUrl) {
-    signedAudioUrl = await StorageService.getSignedUrl(incident.audioUrl);
-  }
-
-  return res.status(200).json({
-    success: true,
-    incident: {
-      ...incident,
-      audioUrl: signedAudioUrl
-    },
-    user: user ? { name: user.name, phone: user.phone, email: user.email, emergencyContacts: user.emergencyContacts } : null,
-    locationHistory: history || []
-  });
 });
 
 export const resolveIncident = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { id } = req.params;
-  const incident = await Incident.findById(id);
+    const userId = req.userId;
+    const {id} = req.params;
+    const incident = await Incident.findById(id);
 
-  if (!incident) {
-    return res.status(404).json({
-      success: false,
-      message: 'Incident record not found',
-      error: 'Not Found'
+    if (!incident) {
+        return res.status(404).json({
+            success: false,
+            message: "Incident record not found",
+            error: "Not Found",
+        });
+    }
+
+    // Verify ownership
+    if (incident.userId !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: "Access denied. You do not own this incident.",
+            error: "Forbidden",
+        });
+    }
+
+    if (["pending_dispatch", "dispatching"].includes(incident.status)) {
+        return res.status(409).json({
+            success: false,
+            message: "Use the pending alert controls to cancel or confirm dispatch.",
+            error: "Conflict",
+        });
+    }
+
+    const updated = await Incident.update(id, {status: "resolved"});
+
+    // Clear cooldown in Redis so subsequent threats can trigger immediate alerts
+    try {
+        const {del: redisDel} = await import("../config/redis.js");
+        await redisDel(`incident:cooldown:${userId}`);
+    } catch {}
+
+    // Broadcast socket resolution update
+    const io = req.app.get("io");
+    if (io) {
+        io.emit("incidentResolved", {incidentId: id});
+    }
+
+    return res.status(200).json({
+        success: true,
+        message: "Incident closed and resolved.",
+        incident: updated,
     });
-  }
-
-  // Verify ownership
-  if (incident.userId !== userId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. You do not own this incident.',
-      error: 'Forbidden'
-    });
-  }
-
-  if (['pending_dispatch', 'dispatching'].includes(incident.status)) {
-    return res.status(409).json({
-      success: false,
-      message: 'Use the pending alert controls to cancel or confirm dispatch.',
-      error: 'Conflict'
-    });
-  }
-
-  const updated = await Incident.update(id, { status: 'resolved' });
-
-  // Clear cooldown in Redis so subsequent threats can trigger immediate alerts
-  try {
-    const { del: redisDel } = await import('../config/redis.js');
-    await redisDel(`incident:cooldown:${userId}`);
-  } catch {}
-
-  // Broadcast socket resolution update
-  const io = req.app.get('io');
-  if (io) {
-    io.emit('incidentResolved', { incidentId: id });
-  }
-
-  return res.status(200).json({
-    success: true,
-    message: 'Incident closed and resolved.',
-    incident: updated
-  });
 });
 
 export const generateReport = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { incidentId } = req.body;
-  if (!incidentId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Missing incidentId in body request',
-      error: 'Bad Request'
-    });
-  }
-
-  const incident = await Incident.findById(incidentId);
-  if (!incident) {
-    return res.status(404).json({
-      success: false,
-      message: 'Incident record not found',
-      error: 'Not Found'
-    });
-  }
-
-  // Verify ownership
-  if (incident.userId !== userId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. You do not own this incident.',
-      error: 'Forbidden'
-    });
-  }
-
-  const user = await User.findById(incident.userId);
-  const pdfUrl = await ReportService.generateIncidentPDF(incident, user, { req });
-
-  // Store report metadata in db
-  try {
-    if (dbMode === 'postgres') {
-      await pool.query(
-        `INSERT INTO reports (incident_id, report_url) VALUES ($1, $2) 
-         ON CONFLICT (incident_id) DO UPDATE SET report_url = $2`,
-        [incidentId, pdfUrl]
-      );
-    } else if (dbMode === 'memory') {
-      if (!memoryStore.reports) memoryStore.reports = [];
-      const existing = memoryStore.reports.find(r => r.incidentId === incidentId);
-      if (existing) {
-        existing.reportUrl = pdfUrl;
-      } else {
-        memoryStore.reports.push({ incidentId, reportUrl: pdfUrl, createdAt: new Date().toISOString() });
-      }
-      saveMemoryStore();
+    const userId = req.userId;
+    const {incidentId} = req.body;
+    if (!incidentId) {
+        return res.status(400).json({
+            success: false,
+            message: "Missing incidentId in body request",
+            error: "Bad Request",
+        });
     }
-  } catch (err) {
-    console.error('[REPORT METADATA DB SAVE ERROR]:', err.message);
-  }
 
-  return res.status(200).json({
-    success: true,
-    message: 'Incident report generated successfully.',
-    reportUrl: pdfUrl
-  });
+    const incident = await Incident.findById(incidentId);
+    if (!incident) {
+        return res.status(404).json({
+            success: false,
+            message: "Incident record not found",
+            error: "Not Found",
+        });
+    }
+
+    // Verify ownership
+    if (incident.userId !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: "Access denied. You do not own this incident.",
+            error: "Forbidden",
+        });
+    }
+
+    const user = await User.findById(incident.userId);
+    const pdfUrl = await ReportService.generateIncidentPDF(incident, user, {req});
+
+    // Store report metadata in db
+    try {
+        if (dbMode === "postgres") {
+            await pool.query(
+                `INSERT INTO reports (incident_id, report_url) VALUES ($1, $2) 
+         ON CONFLICT (incident_id) DO UPDATE SET report_url = $2`,
+                [incidentId, pdfUrl]
+            );
+        } else if (dbMode === "memory") {
+            if (!memoryStore.reports) memoryStore.reports = [];
+            const existing = memoryStore.reports.find((r) => r.incidentId === incidentId);
+            if (existing) {
+                existing.reportUrl = pdfUrl;
+            } else {
+                memoryStore.reports.push({incidentId, reportUrl: pdfUrl, createdAt: new Date().toISOString()});
+            }
+            saveMemoryStore();
+        }
+    } catch (err) {
+        console.error("[REPORT METADATA DB SAVE ERROR]:", err.message);
+    }
+
+    return res.status(200).json({
+        success: true,
+        message: "Incident report generated successfully.",
+        reportUrl: pdfUrl,
+    });
 });
 
 export const getIncidentReport = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  await streamReportForIncident(id, req, res);
+    const {id} = req.params;
+    await streamReportForIncident(id, req, res);
 });
 
 export const deleteIncident = asyncHandler(async (req, res) => {
-  const userId = req.userId;
-  const { id } = req.params;
+    const userId = req.userId;
+    const {id} = req.params;
 
-  // Find the incident first so we can verify ownership before destroying evidence
-  const incident = await Incident.findById(id);
+    // Find the incident first so we can verify ownership before destroying evidence
+    const incident = await Incident.findById(id);
 
-  if (!incident) {
-    return res.status(404).json({
-      success: false,
-      message: 'Incident record not found',
-      error: 'Not Found'
+    if (!incident) {
+        return res.status(404).json({
+            success: false,
+            message: "Incident record not found",
+            error: "Not Found",
+        });
+    }
+
+    // Ownership check — same pattern as resolveIncident and getIncidentById
+    if (incident.userId !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: "Access denied. You do not own this incident.",
+            error: "Forbidden",
+        });
+    }
+
+    if (["pending_dispatch", "dispatching"].includes(incident.status)) {
+        return res.status(409).json({
+            success: false,
+            message: "Pending emergency alerts cannot be deleted before dispatch completes.",
+            error: "Conflict",
+        });
+    }
+
+    await Incident.delete(id);
+
+    return res.status(200).json({
+        success: true,
+        message: "Incident deleted successfully.",
     });
-  }
-
-  // Ownership check — same pattern as resolveIncident and getIncidentById
-  if (incident.userId !== userId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. You do not own this incident.',
-      error: 'Forbidden'
-    });
-  }
-
-  if (['pending_dispatch', 'dispatching'].includes(incident.status)) {
-    return res.status(409).json({
-      success: false,
-      message: 'Pending emergency alerts cannot be deleted before dispatch completes.',
-      error: 'Conflict'
-    });
-  }
-
-  await Incident.delete(id);
-
-  return res.status(200).json({
-    success: true,
-    message: 'Incident deleted successfully.'
-  });
 });

@@ -1,8 +1,8 @@
 import axios from 'axios';
 import io from 'socket.io-client';
 
-const API_BASE = 'http://localhost:5000/api';
-const SOCKET_URL = 'http://localhost:5000';
+const API_BASE = 'http://localhost:5001/api';
+const SOCKET_URL = 'http://localhost:5001';
 
 function pass(name, detail = '') {
   console.log(`  \x1b[32m✔ PASS\x1b[0m [${name}] ${detail}`);
@@ -20,7 +20,7 @@ async function runPoliceE2E() {
 
   // 1. Health check
   console.log('1️⃣ Checking backend health...');
-  const healthRes = await axios.get('http://localhost:5000/health');
+  const healthRes = await axios.get('http://localhost:5001/health');
   if (healthRes.data?.status === 'ONLINE') {
     pass('Backend Health Check', `Status: ${healthRes.data.status}, dbMode: ${healthRes.data.dbMode}`);
   } else {

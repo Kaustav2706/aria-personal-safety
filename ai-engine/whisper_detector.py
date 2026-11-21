@@ -1,3 +1,4 @@
+
 import os
 from transcript_analyzer import TranscriptAnalyzer
 from threading import Lock
@@ -5,12 +6,16 @@ from threading import Lock
 from audio_metrics import audio_metrics
 
 try:
-    from faster_whisper import WhisperModel
+    from faster_whisper import WhisperModel  # type: ignore[import-not-found]
 except (ImportError, OSError):
     WhisperModel = None
 
 WHISPER_MODEL_NAME = os.environ.get("WHISPER_MODEL_NAME", "base")
-WHISPER_MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", "/app/models/whisper-base")
+WHISPER_MODEL_DIR = os.environ.get(
+    "WHISPER_MODEL_DIR",
+    "/app/models/whisper-base"
+)
+
 
 class WhisperDetector:
     def __init__(self):
@@ -19,25 +24,61 @@ class WhisperDetector:
         try:
             if WhisperModel:
                 model_name = os.environ.get("WHISPER_MODEL_NAME", "base")
-                threads = max(1, min(int(os.environ.get("WHISPER_CPU_THREADS", "4")), os.cpu_count() or 4))
-                # 1. Prefer pre-baked offline model directory (baked during Docker build)
+                threads = max(
+                    1,
+                    min(
+                        int(os.environ.get("WHISPER_CPU_THREADS", "4")),
+                        os.cpu_count() or 4
+                    )
+                )
+
+                # 1. Prefer pre-baked offline model directory
                 if os.path.isdir(WHISPER_MODEL_DIR) and os.listdir(WHISPER_MODEL_DIR):
-                    print(f"[WHISPER DETECTOR] Loading pre-baked offline Whisper model from '{WHISPER_MODEL_DIR}'...")
-                    self.model = WhisperModel(WHISPER_MODEL_DIR, device="cpu", compute_type="int8", local_files_only=True, cpu_threads=threads)
+                    print(
+                        f"[WHISPER DETECTOR] Loading pre-baked offline "
+                        f"Whisper model from '{WHISPER_MODEL_DIR}'..."
+                    )
+                    self.model = WhisperModel(
+                        WHISPER_MODEL_DIR,
+                        device="cpu",
+                        compute_type="int8",
+                        local_files_only=True,
+                        cpu_threads=threads
+                    )
                 else:
-                    # 2. Fallback to model name (for local development outside Docker)
-                    print(f"[WHISPER DETECTOR] Pre-baked model not found at '{WHISPER_MODEL_DIR}'. Loading '{model_name}' with {threads} CPU threads...")
-                    self.model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
+                    # 2. Fallback to model name for local development
+                    print(
+                        f"[WHISPER DETECTOR] Pre-baked model not found at "
+                        f"'{WHISPER_MODEL_DIR}'. Loading '{model_name}' "
+                        f"with {threads} CPU threads..."
+                    )
+                    self.model = WhisperModel(
+                        model_name,
+                        device="cpu",
+                        compute_type="int8",
+                        cpu_threads=threads
+                    )
 
                 if self.model:
-                    print("[WHISPER DETECTOR] Whisper model initialized successfully.")
+                    print(
+                        "[WHISPER DETECTOR] Whisper model initialized successfully."
+                    )
                 else:
-                    print("[WHISPER DETECTOR] faster-whisper is not installed; analysis is unavailable.")
+                    print(
+                        "[WHISPER DETECTOR] faster-whisper is not installed; "
+                        "analysis is unavailable."
+                    )
             else:
                 self.model = None
-                print("[WHISPER DETECTOR] faster-whisper is not installed; analysis is unavailable.")
+                print(
+                    "[WHISPER DETECTOR] faster-whisper is not installed; "
+                    "analysis is unavailable."
+                )
+
         except Exception as e:
-            print(f"[WHISPER DETECTOR] Failed to initialize Whisper model: {e}")
+            print(
+                f"[WHISPER DETECTOR] Failed to initialize Whisper model: {e}"
+            )
             self.model = None
 
         # Initialize TranscriptAnalyzer
@@ -47,17 +88,23 @@ class WhisperDetector:
     def is_available(self) -> bool:
         return self.model is not None
 
-    def transcribe_audio(self, file_path: str, original_filename: str = None, language: str = None) -> dict:
+    def transcribe_audio(
+        self,
+        file_path: str,
+        original_filename: str = None,
+        language: str = None
+    ) -> dict:
         """
         Transcribe audio file using faster-whisper.
 
         Args:
-            file_path:         Path to the temporary audio file.
+            file_path: Path to the temporary audio file.
             original_filename: Original client filename, used for diagnostic logging only.
-            language:          Optional explicit BCP-47 hint. None lets the multilingual
-                               model detect the spoken language from the audio itself.
+            language: Optional explicit BCP-47 hint. None lets the multilingual
+                      model detect the spoken language from the audio itself.
         """
-        transcript = ''
+
+        transcript = ""
 
         if not self.model:
             return {
@@ -67,7 +114,9 @@ class WhisperDetector:
                 "distress_flagged": False,
                 "confidence": 0.0,
                 "threatLevel": "SAFE",
-                "risk_score": 0
+                "risk_score": 0,
+                "detected_language": None,
+                "language_confidence": None
             }
 
         if not os.path.exists(file_path):
@@ -80,13 +129,20 @@ class WhisperDetector:
                 "distress_flagged": False,
                 "confidence": 0.0,
                 "threatLevel": "SAFE",
-                "risk_score": 0
+                "risk_score": 0,
+                "detected_language": None,
+                "language_confidence": None
             }
 
         # 1. Attempt real transcription
         try:
             lang_hint = language if language else None
-            print(f"[WHISPER DETECTOR] Transcribing: {file_path} | language hint: {lang_hint or 'auto'}")
+
+            print(
+                f"[WHISPER DETECTOR] Transcribing: {file_path} "
+                f"| language hint: {lang_hint or 'auto'}"
+            )
+
             with self._transcription_lock:
                 segments, info = self.model.transcribe(
                     file_path,
@@ -95,8 +151,11 @@ class WhisperDetector:
                     vad_filter=True,
                     condition_on_previous_text=False
                 )
+
                 segments = list(segments)
-                # If VAD filter yielded 0 segments, retry without VAD filter to catch quiet or short cries
+
+                # If VAD yields no segments, retry without VAD
+                # to catch quiet or short speech.
                 if not segments:
                     segments, info = self.model.transcribe(
                         file_path,
@@ -106,28 +165,47 @@ class WhisperDetector:
                         condition_on_previous_text=False
                     )
                     segments = list(segments)
+
+            detected_language = info.language
+            language_confidence = info.language_probability
+
             print(
-                f"[WHISPER DETECTOR] Detected language: {info.language} "
-                f"(confidence={info.language_probability:.2f})"
+                f"[WHISPER DETECTOR] Detected language: "
+                f"{detected_language} "
+                f"(confidence={language_confidence:.2f})"
             )
-            
+
             transcript_parts = []
+
             for segment in segments:
                 transcript_parts.append(segment.text)
-            
+
             # Join segment text and clean whitespace
             raw_transcript = " ".join(transcript_parts).strip()
-            
+
             if raw_transcript:
                 transcript = raw_transcript
-                print(f"[WHISPER DETECTOR] Real transcript parsed successfully: {ascii(transcript)}")
+                print(
+                    f"[WHISPER DETECTOR] Real transcript parsed "
+                    f"successfully: {ascii(transcript)}"
+                )
             else:
-                print("[WHISPER DETECTOR] No speech detected in audio (silence or non-speech background).")
+                print(
+                    "[WHISPER DETECTOR] No speech detected in audio "
+                    "(silence or non-speech background)."
+                )
 
             audio_metrics.record_success()
+
         except Exception as e:
-            print(f"[WHISPER DETECTOR] Real transcription failed (possibly invalid audio format): {e}")
-            audio_metrics.record_failure(f"transcription_decode_error: {e}")
+            print(
+                f"[WHISPER DETECTOR] Real transcription failed "
+                f"(possibly invalid audio format): {e}"
+            )
+            audio_metrics.record_failure(
+                f"transcription_decode_error: {e}"
+            )
+
             return {
                 "available": True,
                 "status": "could_not_be_read",
@@ -136,23 +214,35 @@ class WhisperDetector:
                 "distress_flagged": False,
                 "confidence": 0.0,
                 "threatLevel": "SAFE",
-                "risk_score": 0
+                "risk_score": 0,
+                "detected_language": None,
+                "language_confidence": None
             }
-            
-        # Perform transcript intelligence analysis using only recognized audio.
+
+        # 2. Perform transcript intelligence analysis
         if transcript:
             analysis = self.analyzer.analyze(transcript)
-            print(f"[WHISPER DETECTOR] Transcript Intelligence -> Distress: {analysis['distress']} | Confidence: {analysis['confidence']}% | Threat Level: {analysis['threatLevel']}")
+
+            print(
+                f"[WHISPER DETECTOR] Transcript Intelligence -> "
+                f"Distress: {analysis['distress']} | "
+                f"Confidence: {analysis['confidence']}% | "
+                f"Threat Level: {analysis['threatLevel']}"
+            )
+
             return {
                 "available": True,
                 "status": "OK",
                 "transcript": transcript,
                 "distress_flagged": analysis["distress"],
                 "confidence": analysis["confidence"],
-                "threatLevel": analysis["threatLevel"]
+                "threatLevel": analysis["threatLevel"],
+                "detected_language": detected_language,
+                "language_confidence": language_confidence
             }
+
         else:
-            # Silent room / no speech detected: honest safe result with 0 risk score
+            # Silent room / no speech detected
             return {
                 "available": True,
                 "status": "OK",
@@ -160,5 +250,7 @@ class WhisperDetector:
                 "distress_flagged": False,
                 "confidence": 0.0,
                 "threatLevel": "SAFE",
-                "risk_score": 0
+                "risk_score": 0,
+                "detected_language": detected_language,
+                "language_confidence": language_confidence
             }
