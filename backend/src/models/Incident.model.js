@@ -180,7 +180,7 @@ static async findByUserId(userId) {
         current.longitude = (updates.longitude !== null && !isNaN(parseFloat(updates.longitude))) ? parseFloat(updates.longitude) : null;
       }
       if (updates.riskScore !== undefined) current.riskScore = parseInt(updates.riskScore);
-      if (updates.audioTranscript) current.audioTranscript = updates.audioTranscript;
+      if (updates.audioTranscript !== undefined) current.audioTranscript = updates.audioTranscript;
       if (updates.audioUrl !== undefined) current.audioUrl = updates.audioUrl;
       if (updates.notificationLogs !== undefined) current.notificationLogs = updates.notificationLogs;
       if (updates.dispatchClaimedAt !== undefined) current.dispatchClaimedAt = updates.dispatchClaimedAt;
@@ -228,7 +228,7 @@ static async findByUserId(userId) {
         fields.push(`risk_score = $${valIdx++}`);
         values.push(parseInt(updates.riskScore));
       }
-      if (updates.audioTranscript) {
+      if (updates.audioTranscript !== undefined) {
         fields.push(`audio_transcript = $${valIdx++}`);
         values.push(updates.audioTranscript);
       }

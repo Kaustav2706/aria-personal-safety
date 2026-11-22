@@ -80,7 +80,7 @@ const io = new Server(server, {
   }
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Enable JSON parsing and restricted CORS
 app.use(cors(corsOptions));

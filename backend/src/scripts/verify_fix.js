@@ -648,7 +648,7 @@ async function runTests() {
       // In development mode, getBackendUrl() falls back to localhost:5000
       process.env.NODE_ENV = 'development';
       const devUrl = getBackendUrl();
-      assert.strictEqual(devUrl, 'http://localhost:5000', 'In development mode, fallback to localhost is permitted');
+      assert.strictEqual(devUrl, 'http://localhost:5001', 'In development mode, fallback to localhost is permitted');
     } finally {
       if (origBackendUrl !== undefined) process.env.BACKEND_URL = origBackendUrl;
       if (origAppUrl !== undefined) process.env.APP_URL = origAppUrl;

@@ -475,6 +475,9 @@ export default function App() {
       formData.append('longitude', (longitude ?? 0).toString());
       formData.append('location_unavailable', String(locationUnavailable));
       formData.append('triggerType', triggerType);
+      if (profile.language) {
+          formData.append("language", profile.language);
+      }
       if (extraInfo) {
         formData.append('audioTranscript', extraInfo);
       }

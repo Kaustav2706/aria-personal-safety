@@ -1,8 +1,8 @@
 import axios from 'axios';
 import io from 'socket.io-client';
 
-const BACKEND_URL = 'http://localhost:5000/api';
-const SOCKET_URL = 'http://localhost:5000';
+const BACKEND_URL = 'http://localhost:5001/api';
+const SOCKET_URL = 'http://localhost:5001';
 
 async function testE2E() {
   console.log('\n==========================================');
